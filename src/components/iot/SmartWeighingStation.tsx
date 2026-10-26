@@ -1,27 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import {
   Cpu,
-  Scale,
-  RefreshCw,
   CheckCircle2,
   AlertTriangle,
   RotateCcw,
-  Zap,
   UserCheck,
   Tag,
   Coins,
-  ShieldCheck,
-  Flame,
-  ArrowRight,
-  Sparkles,
   Sliders,
   Check,
-  Layers,
-  HelpCircle,
+  QrCode,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { formatIDR, formatWeight, formatWeightGrams, formatTimeOnlyID } from '../../utils/formatters';
-import { ScaleState } from '../../types';
+import { InteractiveScale3D } from '../visuals/Isometric3DScene';
+import { QrScannerModal } from '../deposit/QrScannerModal';
+import { HAFI_DIGITAL_BRAND } from '../../utils/qrMember';
 
 export const SmartWeighingStation: React.FC = () => {
   const {
@@ -29,7 +23,6 @@ export const SmartWeighingStation: React.FC = () => {
     activeDeviceId,
     setActiveDeviceId,
     simulatedWeightKg,
-    setSimulatedWeight,
     scaleStabilityScore,
     isScaleStable,
     scaleState,
@@ -41,30 +34,32 @@ export const SmartWeighingStation: React.FC = () => {
     toggleDeviceStatus,
     pushWeightSample,
     setActiveTab,
+    capacityWarningThresholdPct,
+    capacityCriticalThresholdPct,
+    setCapacityThresholds,
+    currentCapacityPct,
+    scannedMemberId,
+    recordQrMemberScan,
   } = useApp();
 
-  const [selectedMemberId, setSelectedMemberId] = useState<string>('mem-001');
+  const [selectedMemberId, setSelectedMemberId] = useState<string>(scannedMemberId || 'mem-001');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('cat-pet');
   const [paymentMethod, setPaymentMethod] = useState<'tabungan' | 'tunai'>('tabungan');
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState<boolean>(false);
   const [completedTrxCode, setCompletedTrxCode] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [isQrScannerOpen, setIsQrScannerOpen] = useState<boolean>(false);
 
-  // Simulation controls
-  const [sliderWeight, setSliderWeight] = useState<number>(simulatedWeightKg || 12.5);
+  const [sliderWeight, setSliderWeight] = useState<number>(simulatedWeightKg || 0);
   const [hasJitter, setHasJitter] = useState<boolean>(false);
 
   const activeDevice = devices.find((d) => d.id === activeDeviceId) || devices[0];
   const selectedMember = members.find((m) => m.id === selectedMemberId);
   const selectedCategory = wasteCategories.find((c) => c.id === selectedCategoryId);
 
-  // Price calculations
   const currentPricePerKg = selectedCategory ? selectedCategory.buyPricePerKg : 0;
-  const currentTotalValue = selectedCategory
-    ? Math.round(simulatedWeightKg * currentPricePerKg)
-    : 0;
+  const currentTotalValue = selectedCategory ? Math.round(simulatedWeightKg * currentPricePerKg) : 0;
 
-  // Handle simulation noise / jitter
   useEffect(() => {
     let interval: any;
     if (hasJitter && simulatedWeightKg > 0) {
@@ -92,18 +87,17 @@ export const SmartWeighingStation: React.FC = () => {
       return;
     }
     if (simulatedWeightKg <= 0.01) {
-      setErrorMessage('Bobot timbangan belum terdeteksi (0,00 kg). Letakkan sampah pada platform.');
+      setErrorMessage('Bobot timbangan masih 0,00 kg.');
       return;
     }
     if (!isScaleStable) {
-      setErrorMessage('Timbangan belum stabil! Tunggu hingga indikator berubah menjadi HIJAU (STABLE).');
+      setErrorMessage('Tunggu hingga pembacaan sensor terkunci stabil.');
       return;
     }
 
     setScaleState('CONFIRMING');
     setErrorMessage('');
 
-    // Atomic transaction execution
     const res = recordDeposit({
       memberId: selectedMember.id,
       items: [
@@ -135,201 +129,232 @@ export const SmartWeighingStation: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* Header with Device Status & Switcher */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl bg-white p-5 border border-slate-200/80 shadow-xs">
+    <div className="space-y-4 pb-8">
+      {/* Compact Header Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
         <div>
           <div className="flex items-center gap-2">
-            <span className="rounded-md bg-teal-50 text-[#009CAC] px-2.5 py-0.5 text-xs font-bold border border-teal-200">
-              STASIUN TIMBANGAN IOT
-            </span>
-            <span className="flex items-center gap-1.5 text-xs font-bold text-amber-600 bg-amber-50 px-2.5 py-0.5 rounded-md border border-amber-200">
-              <Zap className="h-3 w-3" /> MODE SIMULASI REAL-TIME
+            <h1 className="text-lg font-extrabold text-slate-900 tracking-tight">
+              Stasiun Timbangan IoT
+            </h1>
+            <span className="hidden sm:inline-block rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+              {HAFI_DIGITAL_BRAND}
             </span>
           </div>
-          <h1 className="mt-1.5 text-xl font-black text-slate-900 tracking-tight lg:text-2xl">
-            Digital Scale Station
-          </h1>
           <p className="text-xs text-slate-500">
-            Penerimaan telemetri sensor load cell ESP32 dengan deteksi kestabilan bobot otomatis.
+            Terminal pembacaan sensor beban ESP32 dan identifikasi kartu QR nasabah.
           </p>
         </div>
 
-        {/* Device selector */}
-        <div className="flex items-center gap-3">
-          <div className="text-right hidden sm:block">
-            <p className="text-[10px] font-bold text-slate-400 uppercase">Perangkat Terpilih</p>
-            <p className="text-xs font-mono font-bold text-slate-800">{activeDevice.deviceCode}</p>
-          </div>
+        <div className="flex items-center gap-2">
           <select
             value={activeDeviceId}
             onChange={(e) => setActiveDeviceId(e.target.value)}
-            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-800 focus:border-[#009CAC] focus:outline-hidden"
+            aria-label="Pilih Perangkat Timbangan"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 focus:border-[#009CAC] focus:outline-hidden"
           >
             {devices.map((d) => (
               <option key={d.id} value={d.id}>
-                {d.deviceCode} - {d.name.split(' (')[0]} ({d.status.toUpperCase()})
+                {d.deviceCode} · {d.name.split(' (')[0]}
               </option>
             ))}
           </select>
 
           <button
             onClick={() => toggleDeviceStatus(activeDevice.id)}
-            title="Ubah Status Koneksi (Online / Offline)"
-            className={`rounded-xl px-3 py-2 text-xs font-bold border transition ${
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold border transition whitespace-nowrap ${
               activeDevice.status === 'online'
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                : 'bg-rose-50 text-rose-800 border-rose-200'
             }`}
           >
-            {activeDevice.status === 'online' ? '● Online' : '○ Offline'}
+            {activeDevice.status === 'online' ? 'Online' : 'Offline'}
           </button>
         </div>
       </div>
 
-      {/* Main Weighing Grid: Scale LCD & Operator Flow */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Big LCD Scale Terminal (Fintech/Industrial Look) */}
+      {/* Main Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        {/* Left: Digital Scale LCD + 3D Isometric Visualizer + Direct Production Weight Control */}
         <div className="lg:col-span-7 space-y-4">
-          <div className="rounded-3xl border-2 border-slate-800 bg-[#0C2D57] p-6 text-white shadow-2xl relative overflow-hidden">
-            {/* Ambient glass top bar */}
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <div className="flex items-center gap-2">
-                <Cpu className="h-5 w-5 text-[#009CAC]" />
-                <span className="font-mono text-xs font-bold tracking-wider text-teal-300">
-                  {activeDevice.deviceCode}
-                </span>
-                <span className="rounded bg-white/10 px-2 py-0.5 font-mono text-[10px] text-slate-300">
-                  MAX {activeDevice.maxCapacityKg} KG
-                </span>
+          <div className="rounded-2xl bg-[#0C2D57] p-5 text-white shadow-md">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3 text-xs">
+              <div className="flex items-center gap-2 font-mono">
+                <Cpu className="h-4 w-4 text-[#009CAC]" />
+                <span className="font-bold text-teal-300">{activeDevice.deviceCode}</span>
+                <span className="text-slate-400">·</span>
+                <span className="text-slate-300">Maks {activeDevice.maxCapacityKg} kg</span>
               </div>
-
-              {/* State Machine Badge */}
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] uppercase font-bold text-slate-400">STATE:</span>
-                <span
-                  className={`rounded-full px-3 py-0.5 font-mono text-xs font-black tracking-wider ${
-                    scaleState === 'STABLE'
-                      ? 'bg-emerald-400 text-slate-950 animate-pulse'
-                      : scaleState === 'MEASURING'
-                      ? 'bg-amber-400 text-slate-950'
-                      : scaleState === 'COMPLETED'
-                      ? 'bg-teal-300 text-slate-950'
-                      : 'bg-slate-700 text-slate-200'
-                  }`}
-                >
-                  {scaleState}
-                </span>
+              <div className="flex items-center gap-1.5 font-mono">
+                <span className="text-[11px] text-slate-400">Status:</span>
+                <span className="font-bold text-[#DDF7EE]">{scaleState}</span>
               </div>
             </div>
 
-            {/* High Contrast Digital LCD Display */}
-            <div className="my-6 rounded-2xl bg-[#061529] p-6 border border-white/10 shadow-inner relative">
-              <div className="flex items-center justify-between text-slate-400 text-xs font-mono mb-2">
-                <span className="flex items-center gap-1.5">
-                  <span
-                    className={`h-2.5 w-2.5 rounded-full ${
-                      isScaleStable && simulatedWeightKg > 0.01
-                        ? 'bg-emerald-400 shadow-md shadow-emerald-400'
-                        : 'bg-amber-400 animate-ping'
+            {/* LCD + 3D Scale Split */}
+            <div className="my-4 grid grid-cols-1 sm:grid-cols-12 items-center gap-4 rounded-xl bg-[#061529] p-4 border border-white/10">
+              <div className="sm:col-span-8">
+                <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 mb-1">
+                  <span>{isScaleStable ? 'KUNCI STABIL' : 'MENGUKUR BEBAN'}</span>
+                  <span>±{activeDevice.precisionGram}g</span>
+                </div>
+
+                <div className="flex items-baseline gap-3 py-1">
+                  <div
+                    className={`font-semibold text-5xl sm:text-6xl tracking-tight ${
+                      currentCapacityPct >= capacityCriticalThresholdPct
+                        ? 'text-rose-400'
+                        : currentCapacityPct >= capacityWarningThresholdPct
+                        ? 'text-amber-300'
+                        : 'text-[#DDF7EE]'
                     }`}
-                  />
-                  {isScaleStable ? 'STABLE LOCK (TERKUNCI)' : 'READING JITTER (MENGUKUR)'}
-                </span>
-                <span>AKURASI ±{activeDevice.precisionGram}g</span>
-              </div>
-
-              {/* Huge LCD weight readout */}
-              <div className="flex items-baseline justify-between py-2">
-                <div className="font-mono font-black text-6xl md:text-7xl lg:text-8xl tracking-tight text-[#DDF7EE] drop-shadow-md">
-                  {simulatedWeightKg.toFixed(2).replace('.', ',')}
+                  >
+                    {simulatedWeightKg.toFixed(2).replace('.', ',')}
+                  </div>
+                  <div>
+                    <span className="text-2xl font-semibold text-[#009CAC]">kg</span>
+                    <p className="text-xs text-slate-400">
+                      {formatWeightGrams(simulatedWeightKg)}
+                    </p>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <span className="font-mono text-3xl font-extrabold text-[#009CAC]">kg</span>
-                  <p className="font-mono text-sm text-slate-400 mt-1">
-                    {formatWeightGrams(simulatedWeightKg)}
-                  </p>
-                </div>
-              </div>
 
-              {/* Stability Score Bar */}
-              <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between text-xs font-mono">
-                <div className="flex items-center gap-2 flex-1 max-w-xs">
-                  <span className="text-[10px] text-slate-400">STABILITAS:</span>
-                  <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full transition-all duration-300 ${
-                        scaleStabilityScore >= 90
-                          ? 'bg-emerald-400'
-                          : scaleStabilityScore >= 50
-                          ? 'bg-amber-400'
-                          : 'bg-rose-400'
+                {/* Real-Time Capacity Threshold Progress Bar */}
+                <div className="mt-3 pt-2.5 border-t border-white/10 space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-300">
+                      Utilisasi Kapasitas ({simulatedWeightKg.toFixed(1)} / {activeDevice.maxCapacityKg} kg)
+                    </span>
+                    <span
+                      className={`font-semibold ${
+                        currentCapacityPct >= capacityCriticalThresholdPct
+                          ? 'text-rose-400'
+                          : currentCapacityPct >= capacityWarningThresholdPct
+                          ? 'text-amber-300'
+                          : 'text-teal-300'
                       }`}
-                      style={{ width: `${scaleStabilityScore}%` }}
+                    >
+                      {currentCapacityPct}%{' '}
+                      {currentCapacityPct >= capacityCriticalThresholdPct
+                        ? '· KRITIS'
+                        : currentCapacityPct >= capacityWarningThresholdPct
+                        ? '· PERINGATAN'
+                        : '· AMAN'}
+                    </span>
+                  </div>
+                  <div className="relative h-2 w-full rounded-full bg-slate-800 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-200 ${
+                        currentCapacityPct >= capacityCriticalThresholdPct
+                          ? 'bg-rose-500'
+                          : currentCapacityPct >= capacityWarningThresholdPct
+                          ? 'bg-amber-400'
+                          : 'bg-[#009CAC]'
+                      }`}
+                      style={{ width: `${Math.min(100, currentCapacityPct)}%` }}
                     />
                   </div>
-                  <span className="text-[10px] text-slate-300">{scaleStabilityScore}%</span>
+                  <div className="flex items-center justify-between text-[10px] text-slate-400">
+                    <span>Stabilitas: {scaleStabilityScore}%</span>
+                    <span>
+                      Ambang Peringatan {capacityWarningThresholdPct}% · Kritis {capacityCriticalThresholdPct}%
+                    </span>
+                  </div>
                 </div>
+              </div>
 
-                <span className="text-[10px] text-slate-400">
-                  Telemetry: {formatTimeOnlyID(new Date().toISOString())}
-                </span>
+              {/* Interactive 3D Isometric Scale */}
+              <div className="sm:col-span-4 flex justify-center">
+                <InteractiveScale3D
+                  weightKg={simulatedWeightKg}
+                  scaleState={scaleState}
+                  isStable={isScaleStable}
+                />
               </div>
             </div>
 
-            {/* Hardware Quick Action Buttons */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+            {currentCapacityPct >= capacityWarningThresholdPct && (
+              <div
+                className={`mb-3 flex items-center justify-between rounded-xl px-3.5 py-2.5 text-xs border ${
+                  currentCapacityPct >= capacityCriticalThresholdPct
+                    ? 'bg-rose-950/80 border-rose-500/50 text-rose-100'
+                    : 'bg-amber-950/70 border-amber-400/50 text-amber-100'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <AlertTriangle
+                    className={`h-4 w-4 shrink-0 ${
+                      currentCapacityPct >= capacityCriticalThresholdPct ? 'text-rose-400' : 'text-amber-300'
+                    }`}
+                  />
+                  <span>
+                    {currentCapacityPct >= capacityCriticalThresholdPct
+                      ? `Beban mencapai ${currentCapacityPct}% (Melewati ambang kritis ${capacityCriticalThresholdPct}%). Notifikasi manajer telah dikirim.`
+                      : `Beban mencapai ${currentCapacityPct}% (Melewati ambang peringatan ${capacityWarningThresholdPct}%). Notifikasi manajer aktif.`}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-3">
               <button
                 onClick={tareScale}
-                className="flex items-center gap-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 px-4 py-2.5 text-xs font-mono font-bold text-white transition active:scale-95 border border-white/10"
+                className="flex items-center gap-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 px-3.5 py-2 text-xs font-semibold text-white transition border border-white/10"
               >
-                <RotateCcw className="h-4 w-4 text-teal-400" />
-                <span>TARE / NOLKAN TIMBANGAN</span>
+                <RotateCcw className="h-3.5 w-3.5 text-teal-400" />
+                <span>Nolkan Timbangan (Tare)</span>
               </button>
-
-              <div className="flex items-center gap-2 text-xs text-slate-300 font-mono">
-                <span>Offset: {activeDevice.tareOffset.toFixed(2)} kg</span>
-                <span>•</span>
-                <span>Faktor: {activeDevice.calibrationFactor}</span>
-              </div>
+              <span className="text-[11px] text-slate-300">
+                Faktor Kalibrasi: {activeDevice.calibrationFactor}
+              </span>
             </div>
           </div>
 
-          {/* IoT Telemetry Simulation Console (Required for Phase 1 Demo & Testing) */}
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          {/* Direct Production Weight & Threshold Control */}
+          <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3.5">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <div className="flex items-center gap-2">
                 <Sliders className="h-4 w-4 text-[#009CAC]" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
-                  Panel Simulator Sensor IoT (ESP32 Load-Cell)
-                </h3>
+                <h2 className="text-xs font-semibold text-slate-800">
+                  Kontrol Bobot & Simulasi Ambang Kapasitas
+                </h2>
               </div>
-              <span className="rounded bg-teal-50 text-[#009CAC] font-mono text-[10px] font-bold px-2 py-0.5">
-                PENGUJIAN
+              <span className="text-[11px] text-slate-500">
+                Kapasitas Maks: {activeDevice.maxCapacityKg} kg
               </span>
             </div>
 
-            <p className="mt-2 text-xs text-slate-500">
-              Gunakan kontrol di bawah ini untuk mensimulasikan bobot sampah yang diletakkan pada timbangan fisik:
-            </p>
-
-            {/* Quick Presets */}
-            <div className="mt-3 flex flex-wrap gap-2">
-              <span className="text-xs font-semibold text-slate-400 self-center">Preset:</span>
+            <div className="flex flex-wrap gap-1.5">
               {[
-                { label: 'Kosong (0 kg)', val: 0.0 },
-                { label: 'Botol PET 3.5 kg', val: 3.5 },
-                { label: 'Kardus 12.5 kg', val: 12.5 },
-                { label: 'Besi Padat 25.0 kg', val: 25.0 },
-                { label: 'Minyak 5.0 kg', val: 5.0 },
-                { label: 'Karung Jumbo 48.0 kg', val: 48.0 },
+                { label: 'Kosong (0 kg)', val: 0.0, tone: 'default' },
+                { label: 'Botol PET 3,5 kg', val: 3.5, tone: 'default' },
+                { label: 'Kardus 12,5 kg', val: 12.5, tone: 'default' },
+                { label: 'Karung 48,0 kg', val: 48.0, tone: 'default' },
+                {
+                  label: `Ambang Peringatan (${Math.round(activeDevice.maxCapacityKg * (capacityWarningThresholdPct / 100))} kg · ${capacityWarningThresholdPct}%)`,
+                  val: Number((activeDevice.maxCapacityKg * (capacityWarningThresholdPct / 100)).toFixed(1)),
+                  tone: 'warning',
+                },
+                {
+                  label: `Ambang Kritis (${Math.round(activeDevice.maxCapacityKg * (capacityCriticalThresholdPct / 100))} kg · ${capacityCriticalThresholdPct}%)`,
+                  val: Number((activeDevice.maxCapacityKg * (capacityCriticalThresholdPct / 100)).toFixed(1)),
+                  tone: 'critical',
+                },
               ].map((p) => (
                 <button
                   key={p.label}
                   onClick={() => handleApplyWeight(p.val)}
-                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                  className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
                     simulatedWeightKg === p.val
-                      ? 'bg-[#009CAC] text-white shadow-xs'
+                      ? p.tone === 'critical'
+                        ? 'bg-rose-600 text-white'
+                        : p.tone === 'warning'
+                        ? 'bg-amber-500 text-white'
+                        : 'bg-[#009CAC] text-white'
+                      : p.tone === 'critical'
+                      ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200'
+                      : p.tone === 'warning'
+                      ? 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
@@ -338,208 +363,229 @@ export const SmartWeighingStation: React.FC = () => {
               ))}
             </div>
 
-            {/* Weight Slider */}
-            <div className="mt-4 space-y-2">
-              <div className="flex justify-between text-xs font-mono">
-                <span className="text-slate-500">Geser Bobot Manual:</span>
-                <span className="font-bold text-slate-900">{sliderWeight.toFixed(2)} kg</span>
+            <div className="space-y-1.5 pt-1">
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-500">Penyesuaian Bobot Real-Time (0 – {activeDevice.maxCapacityKg} kg):</span>
+                <span className="font-semibold text-slate-900">
+                  {sliderWeight.toFixed(1)} kg ({currentCapacityPct}%)
+                </span>
               </div>
               <input
                 type="range"
                 min="0"
-                max="100"
-                step="0.1"
+                max={activeDevice.maxCapacityKg}
+                step="0.5"
                 value={sliderWeight}
                 onChange={(e) => handleApplyWeight(parseFloat(e.target.value))}
+                aria-label="Penyesuaian Bobot"
                 className="w-full accent-[#009CAC] cursor-pointer"
               />
             </div>
 
-            {/* Jitter Toggle */}
-            <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-xs">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-slate-700">Simulasi Fluktuasi Sensor (Noise/Jitter):</span>
-                <span className="text-[10px] text-slate-400">Mensimulasikan gerakan benda di atas timbangan</span>
+            {/* Configurable Notification Thresholds */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-slate-100 pt-3 text-xs">
+              <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-200/70">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[11px] font-medium text-slate-600">Ambang Peringatan Notifikasi</span>
+                  <span className="text-xs font-semibold text-amber-700">{capacityWarningThresholdPct}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="60"
+                  max="85"
+                  step="5"
+                  value={capacityWarningThresholdPct}
+                  onChange={(e) =>
+                    setCapacityThresholds(Number(e.target.value), capacityCriticalThresholdPct)
+                  }
+                  aria-label="Ambang Peringatan Kapasitas"
+                  className="w-full accent-amber-500 cursor-pointer"
+                />
               </div>
+
+              <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-200/70">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[11px] font-medium text-slate-600">Ambang Kritis Notifikasi</span>
+                  <span className="text-xs font-semibold text-rose-700">{capacityCriticalThresholdPct}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="85"
+                  max="100"
+                  step="5"
+                  value={capacityCriticalThresholdPct}
+                  onChange={(e) =>
+                    setCapacityThresholds(capacityWarningThresholdPct, Number(e.target.value))
+                  }
+                  aria-label="Ambang Kritis Kapasitas"
+                  className="w-full accent-rose-600 cursor-pointer"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between border-t border-slate-100 pt-2.5 text-xs">
+              <span className="text-slate-600">Uji Guncangan Beban (Sensor Dinamis)</span>
               <button
                 onClick={() => setHasJitter(!hasJitter)}
-                className={`rounded-xl px-3 py-1 font-bold text-xs transition ${
+                className={`rounded-lg px-2.5 py-1 font-medium text-xs transition ${
                   hasJitter
-                    ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                    ? 'bg-amber-100 text-amber-900'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                {hasJitter ? 'Aktif (Berguncang)' : 'Nonaktif (Stabil)'}
+                {hasJitter ? 'Dinamis Aktif' : 'Kunci Stabil'}
               </button>
             </div>
           </div>
         </div>
 
-        {/* Right Column: Workflow Step & Transaction Confirmation */}
-        <div className="lg:col-span-5 space-y-4">
-          <div className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-md">
-            <div className="border-b border-slate-100 pb-3">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                WORKFLOW PENIMBANGAN
-              </h2>
-              <h3 className="text-base font-extrabold text-slate-900 mt-0.5">
-                Konfirmasi Penyetoran Nasabah
-              </h3>
+        {/* Right: Concise Operator Confirmation Panel */}
+        <div className="lg:col-span-5">
+          <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
+            <div className="border-b border-slate-100 pb-2.5">
+              <h2 className="text-sm font-bold text-slate-900">Konfirmasi Setoran</h2>
+              <p className="text-[11px] text-slate-500">Pilih nasabah dan kategori material.</p>
             </div>
 
             {errorMessage && (
-              <div className="mt-3 flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800">
-                <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600 mt-0.5" />
-                <p className="font-semibold">{errorMessage}</p>
+              <div className="flex items-center gap-2 rounded-lg bg-rose-50 border border-rose-200 p-2.5 text-xs text-rose-800">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
+                <p className="font-medium">{errorMessage}</p>
               </div>
             )}
 
-            <div className="mt-4 space-y-4">
-              {/* Step 1: Member Selection */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                  <UserCheck className="h-4 w-4 text-[#009CAC]" />
-                  <span>1. Pilih Nasabah Penyetor</span>
+            {/* 1. Member */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <UserCheck className="h-3.5 w-3.5 text-[#009CAC]" />
+                  <span>1. Nasabah</span>
                 </label>
-                <select
-                  value={selectedMemberId}
-                  onChange={(e) => setSelectedMemberId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs font-semibold text-slate-800 focus:border-[#009CAC] focus:bg-white focus:outline-hidden"
+                <button
+                  type="button"
+                  onClick={() => setIsQrScannerOpen(true)}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-[#009CAC] hover:underline cursor-pointer"
                 >
-                  {members.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.memberCode} - {m.fullName} ({m.rtRw}) • Saldo: {formatIDR(m.walletBalance)}
-                    </option>
-                  ))}
-                </select>
-
-                {selectedMember && (
-                  <div className="mt-2 rounded-xl bg-teal-50/50 p-2.5 border border-teal-100 text-xs flex justify-between">
-                    <div>
-                      <span className="font-bold text-slate-900">{selectedMember.fullName}</span>
-                      <span className="text-[10px] text-slate-500 block">{selectedMember.address}</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[10px] text-slate-400 block">Saldo Tabungan:</span>
-                      <span className="font-black text-[#0C2D57] font-mono">
-                        {formatIDR(selectedMember.walletBalance)}
-                      </span>
-                    </div>
-                  </div>
-                )}
+                  <QrCode className="h-3.5 w-3.5" />
+                  <span>Scan QR Nasabah</span>
+                </button>
               </div>
-
-              {/* Step 2: Waste Category Selection */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                  <Tag className="h-4 w-4 text-[#009CAC]" />
-                  <span>2. Pilih Jenis Sampah</span>
-                </label>
-                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto p-1 border border-slate-200 rounded-xl bg-slate-50/50">
-                  {wasteCategories.map((cat) => {
-                    const isSelected = selectedCategoryId === cat.id;
-                    return (
-                      <button
-                        key={cat.id}
-                        type="button"
-                        onClick={() => setSelectedCategoryId(cat.id)}
-                        className={`flex items-start gap-2 rounded-xl p-2.5 text-left text-xs transition border ${
-                          isSelected
-                            ? 'bg-teal-50 border-[#009CAC] text-[#0C2D57] shadow-xs font-bold'
-                            : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
-                        }`}
-                      >
-                        <span
-                          className="h-3 w-3 rounded-full mt-0.5 shrink-0"
-                          style={{ backgroundColor: cat.color }}
-                        />
-                        <div className="min-w-0">
-                          <p className="truncate text-[11px] font-bold leading-tight">{cat.name.split(' (')[0]}</p>
-                          <p className="text-[10px] font-mono text-emerald-700 font-bold mt-0.5">
-                            {formatIDR(cat.buyPricePerKg)}/kg
-                          </p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Step 3: Payment Method Selection */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                  <Coins className="h-4 w-4 text-[#009CAC]" />
-                  <span>3. Metode Penyaluran Dana</span>
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMethod('tabungan')}
-                    className={`rounded-xl p-2.5 text-xs font-bold transition border ${
-                      paymentMethod === 'tabungan'
-                        ? 'bg-[#0C2D57] text-white border-[#0C2D57] shadow-xs'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    Kredit Tabungan Digital
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMethod('tunai')}
-                    className={`rounded-xl p-2.5 text-xs font-bold transition border ${
-                      paymentMethod === 'tunai'
-                        ? 'bg-[#159B70] text-white border-[#159B70] shadow-xs'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    Bayar Tunai Langsung
-                  </button>
-                </div>
-              </div>
-
-              {/* Live Transaction Calculation Summary */}
-              <div className="rounded-2xl bg-slate-900 text-white p-4 font-mono space-y-2 border border-slate-800">
-                <div className="flex justify-between text-xs text-slate-400">
-                  <span>Bobot Terbaca:</span>
-                  <span className="font-bold text-white">{formatWeight(simulatedWeightKg)}</span>
-                </div>
-                <div className="flex justify-between text-xs text-slate-400">
-                  <span>Harga Satuan (Snapshot):</span>
-                  <span className="font-bold text-white">{formatIDR(currentPricePerKg)} / kg</span>
-                </div>
-                <div className="border-t border-slate-800 pt-2 flex items-baseline justify-between">
-                  <span className="text-xs uppercase text-teal-400 font-bold">TOTAL DITERIMA:</span>
-                  <span className="text-xl font-black text-[#DDF7EE] tracking-tight">
-                    {formatIDR(currentTotalValue)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Confirm / Save Transaction Button */}
-              <button
-                type="button"
-                onClick={handleConfirmTransaction}
-                disabled={simulatedWeightKg <= 0.01 || !isScaleStable}
-                className={`w-full flex items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-black text-white shadow-xl transition-all ${
-                  simulatedWeightKg > 0.01 && isScaleStable
-                    ? 'bg-gradient-to-r from-[#009CAC] to-[#159B70] hover:brightness-110 active:scale-98 shadow-teal-900/30 cursor-pointer'
-                    : 'bg-slate-300 cursor-not-allowed text-slate-500'
-                }`}
+              <select
+                value={selectedMemberId}
+                onChange={(e) => setSelectedMemberId(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs font-semibold text-slate-800 focus:border-[#009CAC] focus:bg-white focus:outline-hidden"
               >
-                <CheckCircle2 className="h-5 w-5" />
-                <span>
-                  {simulatedWeightKg <= 0.01
-                    ? 'Letakkan Sampah pada Timbangan'
-                    : !isScaleStable
-                    ? 'Menunggu Kestabilan Bobot...'
-                    : 'Konfirmasi & Simpan Setoran'}
-                </span>
-              </button>
-
-              <p className="text-[10px] text-center text-slate-400">
-                Setoran diproses secara atomik: saldo nasabah, pergerakan gudang, dan log audit diperbarui otomatis.
-              </p>
+                {members.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.memberCode} - {m.fullName} · Saldo {formatIDR(m.walletBalance)}
+                  </option>
+                ))}
+              </select>
             </div>
+
+            {/* 2. Waste Category */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
+                <Tag className="h-3.5 w-3.5 text-[#009CAC]" />
+                <span>2. Jenis Sampah</span>
+              </label>
+              <div className="grid grid-cols-2 gap-1.5 max-h-44 overflow-y-auto pr-0.5">
+                {wasteCategories.map((cat) => {
+                  const isSelected = selectedCategoryId === cat.id;
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setSelectedCategoryId(cat.id)}
+                      className={`flex items-start gap-2 rounded-lg p-2 text-left text-xs transition border ${
+                        isSelected
+                          ? 'bg-teal-50/70 border-[#009CAC] text-[#0C2D57] font-bold'
+                          : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
+                      }`}
+                    >
+                      <span
+                        className="h-2.5 w-2.5 rounded-full mt-1 shrink-0"
+                        style={{ backgroundColor: cat.color }}
+                      />
+                      <div className="min-w-0">
+                        <p className="truncate text-[11px] font-semibold leading-tight">{cat.name.split(' (')[0]}</p>
+                        <p className="text-[10px] font-mono text-emerald-700 font-semibold mt-0.5 tabular-nums">
+                          {formatIDR(cat.buyPricePerKg)}/kg
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 3. Payout Method */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
+                <Coins className="h-3.5 w-3.5 text-[#009CAC]" />
+                <span>3. Metode</span>
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('tabungan')}
+                  className={`rounded-lg py-2 px-3 text-xs font-bold transition border ${
+                    paymentMethod === 'tabungan'
+                      ? 'bg-[#0C2D57] text-white border-[#0C2D57]'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  Kredit Tabungan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('tunai')}
+                  className={`rounded-lg py-2 px-3 text-xs font-bold transition border ${
+                    paymentMethod === 'tunai'
+                      ? 'bg-[#159B70] text-white border-[#159B70]'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  Bayar Tunai
+                </button>
+              </div>
+            </div>
+
+            {/* Calculation Summary */}
+            <div className="rounded-xl bg-slate-900 text-white p-3.5 font-mono tabular-nums space-y-1.5">
+              <div className="flex justify-between text-xs text-slate-400">
+                <span>Bobot × Harga:</span>
+                <span className="text-white">
+                  {formatWeight(simulatedWeightKg)} × {formatIDR(currentPricePerKg)}
+                </span>
+              </div>
+              <div className="border-t border-slate-800 pt-1.5 flex items-baseline justify-between">
+                <span className="text-xs text-teal-400 font-bold">TOTAL:</span>
+                <span className="text-lg font-black text-[#DDF7EE]">
+                  {formatIDR(currentTotalValue)}
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleConfirmTransaction}
+              disabled={simulatedWeightKg <= 0.01 || !isScaleStable}
+              className={`w-full flex items-center justify-center gap-2 rounded-xl py-3 text-xs font-bold text-white transition ${
+                simulatedWeightKg > 0.01 && isScaleStable
+                  ? 'bg-[#009CAC] hover:bg-teal-700 cursor-pointer shadow-sm'
+                  : 'bg-slate-300 cursor-not-allowed text-slate-500'
+              }`}
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              <span>
+                {simulatedWeightKg <= 0.01
+                  ? 'Pilih atau Masukkan Bobot'
+                  : !isScaleStable
+                  ? 'Menunggu Kestabilan...'
+                  : 'Konfirmasi & Simpan Setoran'}
+              </span>
+            </button>
           </div>
         </div>
       </div>
@@ -547,62 +593,68 @@ export const SmartWeighingStation: React.FC = () => {
       {/* Success Modal */}
       {isSuccessModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl text-center space-y-4">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600">
-              <Check className="h-8 w-8 stroke-[3]" />
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl text-center space-y-3.5">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600">
+              <Check className="h-6 w-6 stroke-[3]" />
             </div>
 
             <div>
-              <span className="rounded-full bg-emerald-50 px-3 py-1 font-mono text-xs font-bold text-emerald-700">
-                {completedTrxCode}
-              </span>
-              <h3 className="mt-2 text-xl font-black text-slate-900">
-                Setoran Sampah Berhasil Dicatat!
+              <p className="font-mono text-xs font-bold text-emerald-700">{completedTrxCode}</p>
+              <h3 className="mt-1 text-base font-extrabold text-slate-900">
+                Setoran Berhasil Dibukukan
               </h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Data penimbangan sensor IoT telah terverifikasi dan dibukukan ke dalam buku tabungan digital.
-              </p>
             </div>
 
-            <div className="rounded-2xl bg-slate-50 p-4 text-left font-mono text-xs space-y-1.5 border border-slate-200/80">
+            <div className="rounded-xl bg-slate-50 p-3.5 text-left font-mono text-xs space-y-1 border border-slate-200">
               <div className="flex justify-between">
                 <span className="text-slate-500">Nasabah:</span>
                 <span className="font-bold text-slate-900">{selectedMember?.fullName}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Kategori:</span>
-                <span className="font-bold text-slate-900">{selectedCategory?.name}</span>
+                <span className="text-slate-500">Material:</span>
+                <span className="font-bold text-slate-900">{selectedCategory?.name.split(' (')[0]}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Bobot:</span>
                 <span className="font-bold text-slate-900">{formatWeight(simulatedWeightKg)}</span>
               </div>
               <div className="flex justify-between border-t border-slate-200 pt-1 text-sm font-black text-emerald-700">
-                <span>Total Nilai:</span>
+                <span>Total:</span>
                 <span>{formatIDR(currentTotalValue)}</span>
               </div>
             </div>
 
-            <div className="flex gap-2 pt-2">
+            <div className="flex gap-2">
               <button
                 onClick={handleResetForNext}
-                className="flex-1 rounded-xl bg-[#009CAC] py-3 text-xs font-bold text-white hover:bg-teal-700 transition"
+                className="flex-1 rounded-lg bg-[#009CAC] py-2.5 text-xs font-bold text-white hover:bg-teal-700 transition"
               >
-                Timbang Nasabah Berikutnya
+                Timbang Berikutnya
               </button>
               <button
                 onClick={() => {
                   setIsSuccessModalOpen(false);
                   setActiveTab('overview');
                 }}
-                className="rounded-xl border border-slate-200 px-4 py-3 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+                className="rounded-lg border border-slate-200 px-3.5 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
               >
-                Lihat Dashboard
+                Ringkasan
               </button>
             </div>
           </div>
         </div>
       )}
+
+      <QrScannerModal
+        isOpen={isQrScannerOpen}
+        onClose={() => setIsQrScannerOpen(false)}
+        members={members}
+        onMemberIdentified={(member, _raw, source) => {
+          setSelectedMemberId(member.id);
+          setErrorMessage('');
+          recordQrMemberScan(member, `Timbangan IoT (${source})`);
+        }}
+      />
     </div>
   );
 };

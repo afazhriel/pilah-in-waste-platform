@@ -1,42 +1,116 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+import { motion } from 'motion/react';
 import {
-  Scale,
-  Coins,
-  Wallet,
-  Users,
-  Boxes,
-  TrendingUp,
   Cpu,
-  ArrowUpRight,
-  ArrowDownRight,
-  Clock,
-  AlertCircle,
-  CheckCircle2,
+  ArrowRight,
   ChevronRight,
   FileText,
   Printer,
-  Sparkles,
-  Info,
-  Calendar,
   X,
+  BarChart3,
+  Activity,
+  RotateCcw,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
+  ComposedChart,
+  Bar,
+  Line,
   AreaChart,
   Area,
   XAxis,
   YAxis,
+  CartesianGrid,
   Tooltip,
+  ReferenceLine,
   PieChart,
   Pie,
   Cell,
-  BarChart,
-  Bar,
-  Legend,
 } from 'recharts';
 import { useApp } from '../../context/AppContext';
 import { formatIDR, formatWeight, formatDateTimeID, formatTimeOnlyID } from '../../utils/formatters';
 import { DepositTransaction } from '../../types';
+import {
+  HeroEcoVault3D,
+  InteractiveScale3D,
+  IsometricEcosystemStage3D,
+} from '../visuals/Isometric3DScene';
+
+interface WeeklyProductivityPoint {
+  weekLabel: string;
+  periodRange: string;
+  plastikKg: number;
+  kertasKg: number;
+  logamKacaKg: number;
+  totalKg: number;
+  targetKg: number;
+  nilaiRp: number;
+  transaksiCount: number;
+  isCurrentWeek?: boolean;
+}
+
+const CustomWeeklyTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload || !payload.length) return null;
+  const data: WeeklyProductivityPoint = payload[0]?.payload;
+  if (!data) return null;
+
+  const achievementPct = data.targetKg > 0 ? Math.round((data.totalKg / data.targetKg) * 100) : 0;
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white/95 backdrop-blur-xs p-3.5 shadow-lg text-xs min-w-[210px]">
+      <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
+        <div>
+          <p className="font-semibold text-slate-900">{label}</p>
+          <p className="text-[11px] text-slate-400">{data.periodRange}</p>
+        </div>
+        <span
+          className={`text-[11px] font-medium ${
+            achievementPct >= 100 ? 'text-emerald-600' : 'text-amber-600'
+          }`}
+        >
+          {achievementPct}% Target
+        </span>
+      </div>
+
+      <div className="space-y-1.5 text-[11px]">
+        <div className="flex items-center justify-between">
+          <span className="text-slate-500">Total Volume:</span>
+          <span className="font-semibold text-slate-900">{data.totalKg.toFixed(1)} kg</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-slate-500 flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-xs bg-[#009CAC]" />
+            Plastik:
+          </span>
+          <span className="text-slate-700">{data.plastikKg.toFixed(1)} kg</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-slate-500 flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-xs bg-[#159B70]" />
+            Kertas & Kardus:
+          </span>
+          <span className="text-slate-700">{data.kertasKg.toFixed(1)} kg</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-slate-500 flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-xs bg-[#0C2D57]" />
+            Logam & Kaca:
+          </span>
+          <span className="text-slate-700">{data.logamKacaKg.toFixed(1)} kg</span>
+        </div>
+
+        <div className="border-t border-slate-100 pt-1.5 mt-1.5 flex items-center justify-between">
+          <span className="text-slate-500">Nilai Setoran:</span>
+          <span className="font-semibold text-emerald-700">{formatIDR(data.nilaiRp)}</span>
+        </div>
+        <div className="flex items-center justify-between text-slate-400">
+          <span>Frekuensi:</span>
+          <span>{data.transaksiCount} setoran</span>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export const OverviewDashboard: React.FC = () => {
   const {
@@ -49,694 +123,1004 @@ export const OverviewDashboard: React.FC = () => {
     activeDeviceId,
     simulatedWeightKg,
     isScaleStable,
+    scaleState,
+    scaleStabilityScore,
+    pushWeightSample,
+    tareScale,
     withdrawalRequests,
     setActiveTab,
+    capacityWarningThresholdPct,
+    capacityCriticalThresholdPct,
+    currentCapacityPct,
   } = useApp();
 
   const [selectedReceipt, setSelectedReceipt] = useState<DepositTransaction | null>(null);
+  const [chartTimeframe, setChartTimeframe] = useState<'weekly' | 'daily'>('weekly');
+  const [weeklyChartMode, setWeeklyChartMode] = useState<'stacked' | 'area'>('stacked');
 
-  // 1. Calculate KPI Metrics
   const totalWeightKgAllTime = deposits.reduce((acc, d) => acc + d.totalWeightKg, 0);
-
-  // Today's deposits (Asia/Jakarta standard)
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayDeposits = deposits.filter((d) => d.timestamp.startsWith(todayStr));
   const todayDepositValue = todayDeposits.reduce((acc, d) => acc + d.totalValue, 0);
   const todayWeightKg = todayDeposits.reduce((acc, d) => acc + d.totalWeightKg, 0);
 
-  // Total Member Balances (Kewajiban Tabungan)
   const totalMemberBalances = members.reduce((acc, m) => acc + m.walletBalance, 0);
   const activeMembersCount = members.filter((m) => m.status === 'active').length;
-
-  // Total Available Stock in Warehouse
   const totalAvailableStockKg = inventoryStocks.reduce((acc, s) => acc + s.availableStockKg, 0);
-
-  // Realized Gross Margin from collector sales
   const totalRealizedMargin = collectorSales.reduce((acc, s) => acc + s.totalGrossMargin, 0);
 
-  // Active IoT device
   const activeDevice = devices.find((d) => d.id === activeDeviceId) || devices[0];
   const pendingWithdrawals = withdrawalRequests.filter((w) => w.status === 'pending');
 
-  // 2. Prepare Data for Charts
-  // Collection composition
-  const compositionData = wasteCategories.map((cat) => {
-    const stock = inventoryStocks.find((s) => s.categoryId === cat.id);
-    return {
-      name: cat.name.split(' (')[0], // clean label
-      value: stock ? stock.currentStockKg : 0,
-      color: cat.color,
-    };
-  }).filter((item) => item.value > 0);
+  const compositionData = wasteCategories
+    .map((cat) => {
+      const stock = inventoryStocks.find((s) => s.categoryId === cat.id);
+      return {
+        name: cat.name.split(' (')[0],
+        value: stock ? stock.currentStockKg : 0,
+        color: cat.color,
+      };
+    })
+    .filter((item) => item.value > 0);
 
-  // Daily Trend Mock Data aligned with real timestamps
-  const trendData = [
-    { date: '19 Okt', beratKg: 45.2, nilaiRp: 180000, marginRp: 65000 },
-    { date: '20 Okt', beratKg: 62.0, nilaiRp: 245000, marginRp: 90000 },
-    { date: '21 Okt', beratKg: 38.5, nilaiRp: 154000, marginRp: 52000 },
-    { date: '22 Okt', beratKg: 85.0, nilaiRp: 340000, marginRp: 145000 },
-    { date: '23 Okt', beratKg: 54.3, nilaiRp: 215000, marginRp: 78000 },
-    { date: '24 Okt', beratKg: 92.4, nilaiRp: 395000, marginRp: 160000 },
-    { date: '25 Okt (Hari Ini)', beratKg: todayWeightKg || 64.7, nilaiRp: todayDepositValue || 268000, marginRp: 110000 },
+  // Real-time computation for Current Week from live `deposits` state
+  const weeklyTrendData = useMemo<WeeklyProductivityPoint[]>(() => {
+    let livePlastikKg = 0;
+    let liveKertasKg = 0;
+    let liveLogamKacaKg = 0;
+    let liveNilaiRp = 0;
+
+    deposits.forEach((tx) => {
+      liveNilaiRp += tx.totalValue;
+      tx.items.forEach((item) => {
+        const cat = wasteCategories.find((c) => c.id === item.categoryId);
+        const group = cat?.categoryGroup || 'Plastik';
+        if (group === 'Plastik') {
+          livePlastikKg += item.weightKg;
+        } else if (group === 'Kertas') {
+          liveKertasKg += item.weightKg;
+        } else {
+          liveLogamKacaKg += item.weightKg;
+        }
+      });
+    });
+
+    const currentWeekPlastik = Number((118.4 + livePlastikKg).toFixed(1));
+    const currentWeekKertas = Number((142.0 + liveKertasKg).toFixed(1));
+    const currentWeekLogam = Number((54.6 + liveLogamKacaKg).toFixed(1));
+    const currentWeekTotal = Number(
+      (currentWeekPlastik + currentWeekKertas + currentWeekLogam).toFixed(1)
+    );
+
+    return [
+      {
+        weekLabel: 'M1 Sep',
+        periodRange: '1–7 Sep',
+        plastikKg: 112.5,
+        kertasKg: 138.0,
+        logamKacaKg: 48.5,
+        totalKg: 299.0,
+        targetKg: 350,
+        nilaiRp: 1185000,
+        transaksiCount: 38,
+      },
+      {
+        weekLabel: 'M2 Sep',
+        periodRange: '8–14 Sep',
+        plastikKg: 124.0,
+        kertasKg: 149.5,
+        logamKacaKg: 52.0,
+        totalKg: 325.5,
+        targetKg: 350,
+        nilaiRp: 1290000,
+        transaksiCount: 42,
+      },
+      {
+        weekLabel: 'M3 Sep',
+        periodRange: '15–21 Sep',
+        plastikKg: 119.0,
+        kertasKg: 162.0,
+        logamKacaKg: 61.5,
+        totalKg: 342.5,
+        targetKg: 350,
+        nilaiRp: 1380000,
+        transaksiCount: 45,
+      },
+      {
+        weekLabel: 'M4 Sep',
+        periodRange: '22–28 Sep',
+        plastikKg: 136.5,
+        kertasKg: 171.0,
+        logamKacaKg: 58.0,
+        totalKg: 365.5,
+        targetKg: 350,
+        nilaiRp: 1495000,
+        transaksiCount: 49,
+      },
+      {
+        weekLabel: 'M1 Okt',
+        periodRange: '29 Sep–5 Okt',
+        plastikKg: 128.0,
+        kertasKg: 158.5,
+        logamKacaKg: 55.5,
+        totalKg: 342.0,
+        targetKg: 350,
+        nilaiRp: 1365000,
+        transaksiCount: 44,
+      },
+      {
+        weekLabel: 'M2 Okt',
+        periodRange: '6–12 Okt',
+        plastikKg: 145.2,
+        kertasKg: 184.0,
+        logamKacaKg: 64.8,
+        totalKg: 394.0,
+        targetKg: 350,
+        nilaiRp: 1610000,
+        transaksiCount: 53,
+      },
+      {
+        weekLabel: 'M3 Okt',
+        periodRange: '13–19 Okt',
+        plastikKg: 152.0,
+        kertasKg: 189.5,
+        logamKacaKg: 68.5,
+        totalKg: 410.0,
+        targetKg: 350,
+        nilaiRp: 1685000,
+        transaksiCount: 56,
+      },
+      {
+        weekLabel: 'Minggu Ini',
+        periodRange: '20–26 Okt (Live)',
+        plastikKg: currentWeekPlastik,
+        kertasKg: currentWeekKertas,
+        logamKacaKg: currentWeekLogam,
+        totalKg: currentWeekTotal,
+        targetKg: 350,
+        nilaiRp: 1240000 + liveNilaiRp,
+        transaksiCount: 46 + deposits.length,
+        isCurrentWeek: true,
+      },
+    ];
+  }, [deposits, wasteCategories]);
+
+  const currentWeekStats = weeklyTrendData[weeklyTrendData.length - 1];
+  const prevWeekStats = weeklyTrendData[weeklyTrendData.length - 2];
+  const weeklyGrowthPct =
+    prevWeekStats && prevWeekStats.totalKg > 0
+      ? (((currentWeekStats.totalKg - prevWeekStats.totalKg) / prevWeekStats.totalKg) * 100).toFixed(1)
+      : '0.0';
+  const avgWeeklyKg = (
+    weeklyTrendData.reduce((acc, w) => acc + w.totalKg, 0) / weeklyTrendData.length
+  ).toFixed(1);
+
+  const dailyTrendData = [
+    { date: '19 Okt', beratKg: 45.2, nilaiRp: 180000 },
+    { date: '20 Okt', beratKg: 62.0, nilaiRp: 245000 },
+    { date: '21 Okt', beratKg: 38.5, nilaiRp: 154000 },
+    { date: '22 Okt', beratKg: 85.0, nilaiRp: 340000 },
+    { date: '23 Okt', beratKg: 54.3, nilaiRp: 215000 },
+    { date: '24 Okt', beratKg: 92.4, nilaiRp: 395000 },
+    { date: 'Hari Ini', beratKg: Number((todayWeightKg || 64.7).toFixed(1)), nilaiRp: todayDepositValue || 268000 },
+  ];
+
+  // Unboxed Floffice-style Editorial Metrics
+  const editorialMetrics = [
+    {
+      number: formatWeight(totalWeightKgAllTime),
+      label: 'TOTAL SAMPAH TERKUMPUL',
+      desc: `Akumulasi material terverifikasi sensor IoT (+${formatWeight(todayWeightKg)} hari ini).`,
+      actionTab: 'setoran' as const,
+    },
+    {
+      number: formatIDR(todayDepositValue),
+      label: 'NILAI SETORAN HARI INI',
+      desc: `Tercatat dari ${todayDeposits.length} transaksi warga yang langsung masuk buku besar.`,
+      actionTab: 'setoran' as const,
+    },
+    {
+      number: formatIDR(totalMemberBalances),
+      label: 'SALDO TABUNGAN WARGA',
+      desc: `${activeMembersCount} nasabah aktif · ${pendingWithdrawals.length} pengajuan pencairan menunggu.`,
+      actionTab: 'tabungan' as const,
+    },
+    {
+      number: formatWeight(totalAvailableStockKg),
+      label: 'STOK GUDANG SIAP JUAL',
+      desc: 'Material terpilah siap diangkut mitra pengepul CV Daur Mulya.',
+      actionTab: 'inventaris' as const,
+    },
   ];
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* Top Banner / Hero Greeting */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#0C2D57] via-[#082245] to-[#009CAC] p-6 text-white shadow-xl">
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="rounded-md bg-teal-400/20 px-2.5 py-0.5 text-xs font-semibold text-[#DDF7EE] tracking-wide">
-                OPERASIONAL REAL-TIME
-              </span>
-              <span className="text-xs text-slate-300 font-mono">
-                {new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-              </span>
+    <div className="space-y-12 pb-10">
+      {/* SECTION 1: Floffice Asymmetric Architectural Hero + @ssychui Two-Tone Headline */}
+      <section className="pt-2">
+        <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 pb-8 border-b border-slate-200/80">
+          {/* Bottom-left monumental two-tone headline */}
+          <div className="max-w-3xl space-y-3">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium tracking-[0.14em] uppercase text-slate-500">
+              <span className="h-2 w-2 bg-[#0C2D57] inline-block" />
+              <span>UNIT SUKAMAJU · EKOSISTEM BANK SAMPAH PINTAR</span>
+              <span>·</span>
+              <span className="font-semibold text-[#009CAC]">DALAM NAUNGAN HAFI DIGITAL</span>
             </div>
-            <h1 className="mt-2 text-2xl font-black tracking-tight lg:text-3xl">
-              Dashboard Bank Sampah Pintar
+            <h1 className="text-3xl sm:text-5xl font-normal tracking-tight leading-[1.08] text-slate-950">
+              Solusi bank sampah pintar{' '}
+              <span className="text-slate-400">
+                dirancang untuk operasional modern.
+              </span>
             </h1>
-            <p className="mt-1 text-xs text-slate-200 max-w-xl font-normal leading-relaxed">
-              Pantau timbangan digital ESP32 secara instan, kelola tabungan nasabah, dan optimalisasi margin penjualan ke pengepul daur ulang.
+          </div>
+
+          {/* Top-right quiet editorial narrative (Floffice signature) */}
+          <div className="lg:max-w-xs lg:text-right space-y-4">
+            <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
+              Dari penimbangan otomatis ESP32 hingga pencairan tabungan warga, kelola seluruh rantai nilai daur ulang dalam satu meja kerja.
             </p>
-          </div>
-
-          {/* Quick Actions */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            <button
-              onClick={() => setActiveTab('timbangan')}
-              className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#009CAC] to-[#159B70] px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-teal-900/40 transition hover:brightness-110 active:scale-95"
-            >
-              <Cpu className="h-4 w-4" />
-              <span>Buka Timbangan IoT</span>
-            </button>
-            <button
-              onClick={() => setActiveTab('setoran')}
-              className="flex items-center gap-2 rounded-xl bg-white/10 backdrop-blur-md border border-white/20 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-white/20 active:scale-95"
-            >
-              <Scale className="h-4 w-4" />
-              <span>+ Setor Sampah</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Decorative background circles */}
-        <div className="pointer-events-none absolute -right-16 -bottom-16 h-64 w-64 rounded-full bg-teal-400/10 blur-2xl" />
-        <div className="pointer-events-none absolute right-48 -top-16 h-48 w-48 rounded-full bg-emerald-400/10 blur-xl" />
-      </div>
-
-      {/* KPI Cards Grid (Fintech Style) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        {/* KPI 1: Total Sampah */}
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs transition hover:shadow-md">
-          <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-[11px] font-bold tracking-wider uppercase text-slate-400">Total Sampah</span>
-            <div className="rounded-xl bg-teal-50 p-2 text-[#009CAC]">
-              <Scale className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="text-xl font-black text-slate-900 font-mono tracking-tight">
-            {formatWeight(totalWeightKgAllTime)}
-          </div>
-          <p className="mt-1 text-[11px] font-medium text-emerald-600 flex items-center gap-1">
-            <ArrowUpRight className="h-3 w-3" />
-            <span>+{formatWeight(todayWeightKg)} hari ini</span>
-          </p>
-        </div>
-
-        {/* KPI 2: Nilai Setoran Hari Ini */}
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs transition hover:shadow-md">
-          <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-[11px] font-bold tracking-wider uppercase text-slate-400">Setoran Hari Ini</span>
-            <div className="rounded-xl bg-emerald-50 p-2 text-emerald-600">
-              <Coins className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="text-xl font-black text-slate-900 font-mono tracking-tight">
-            {formatIDR(todayDepositValue)}
-          </div>
-          <p className="mt-1 text-[11px] text-slate-500">
-            {todayDeposits.length} transaksi tercatat
-          </p>
-        </div>
-
-        {/* KPI 3: Total Saldo Nasabah (Kewajiban) */}
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs transition hover:shadow-md">
-          <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-[11px] font-bold tracking-wider uppercase text-slate-400">Saldo Nasabah</span>
-            <div className="rounded-xl bg-blue-50 p-2 text-blue-600">
-              <Wallet className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="text-xl font-black text-slate-900 font-mono tracking-tight">
-            {formatIDR(totalMemberBalances)}
-          </div>
-          <p className="mt-1 text-[10px] font-medium text-slate-400">
-            Kewajiban liabilitas tabungan
-          </p>
-        </div>
-
-        {/* KPI 4: Nasabah Aktif */}
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs transition hover:shadow-md">
-          <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-[11px] font-bold tracking-wider uppercase text-slate-400">Nasabah Aktif</span>
-            <div className="rounded-xl bg-indigo-50 p-2 text-indigo-600">
-              <Users className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="text-xl font-black text-slate-900 font-mono tracking-tight">
-            {activeMembersCount} <span className="text-xs font-normal text-slate-400">Orang</span>
-          </div>
-          <p className="mt-1 text-[11px] text-emerald-600 font-medium">
-            100% partisipasi warga
-          </p>
-        </div>
-
-        {/* KPI 5: Stok Tersedia */}
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs transition hover:shadow-md">
-          <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-[11px] font-bold tracking-wider uppercase text-slate-400">Stok Gudang</span>
-            <div className="rounded-xl bg-amber-50 p-2 text-amber-600">
-              <Boxes className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="text-xl font-black text-slate-900 font-mono tracking-tight">
-            {formatWeight(totalAvailableStockKg)}
-          </div>
-          <p className="mt-1 text-[11px] text-slate-500">
-            Siap jual ke pengepul
-          </p>
-        </div>
-
-        {/* KPI 6: Margin Realisasi */}
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs transition hover:shadow-md">
-          <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-[11px] font-bold tracking-wider uppercase text-slate-400">Margin Terealisasi</span>
-            <div className="rounded-xl bg-teal-50 p-2 text-teal-700">
-              <TrendingUp className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="text-xl font-black text-slate-900 font-mono tracking-tight text-emerald-700">
-            {formatIDR(totalRealizedMargin)}
-          </div>
-          <p className="mt-1 text-[11px] text-emerald-600 font-medium">
-            Laba kotor operasional
-          </p>
-        </div>
-      </div>
-
-      {/* Operational Intelligence Card & Alerts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* IoT Live Monitoring Widget */}
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <div className="flex items-center gap-2">
-              <Cpu className="h-4 w-4 text-[#009CAC]" />
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                Status Timbangan Terhubung
-              </h2>
-            </div>
-            <span
-              className={`flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                activeDevice.status === 'online'
-                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                  : 'bg-rose-50 text-rose-700 border border-rose-200'
-              }`}
-            >
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  activeDevice.status === 'online' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
-                }`}
-              />
-              {activeDevice.status.toUpperCase()}
-            </span>
-          </div>
-
-          <div className="mt-4 flex items-center justify-between">
-            <div>
-              <p className="text-[11px] font-semibold text-slate-500">Perangkat Aktif</p>
-              <p className="text-sm font-bold text-slate-900">{activeDevice.name}</p>
-              <p className="text-[10px] font-mono text-slate-400 mt-0.5">
-                MAC: {activeDevice.macAddress} • Firmware {activeDevice.firmwareVersion}
-              </p>
-            </div>
-            <div className="rounded-xl bg-slate-50 p-2.5 text-right font-mono border border-slate-200/60">
-              <p className="text-[9px] text-slate-400 uppercase">Live Sensor</p>
-              <p className="text-lg font-black text-slate-900">
-                {simulatedWeightKg > 0 ? `${simulatedWeightKg.toFixed(2)} kg` : '0,00 kg'}
-              </p>
-              <span
-                className={`inline-block text-[9px] font-bold ${
-                  isScaleStable ? 'text-emerald-600' : 'text-amber-600'
-                }`}
+            <div className="flex lg:justify-end items-center gap-2.5">
+              <button
+                onClick={() => setActiveTab('setoran')}
+                className="inline-flex items-center gap-2 rounded-full bg-slate-950 hover:bg-slate-800 px-4 py-2 text-xs font-medium text-white transition cursor-pointer"
               >
-                {isScaleStable ? '● Stabil' : '○ Mengukur...'}
-              </span>
+                <span>Catat Setoran Baru</span>
+                <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => setActiveTab('laporan')}
+                className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white hover:bg-slate-50 px-4 py-2 text-xs font-medium text-slate-700 transition cursor-pointer"
+              >
+                <span>Ekspor PDF / Excel</span>
+              </button>
             </div>
           </div>
-
-          <div className="mt-4 grid grid-cols-2 gap-2 text-[11px] bg-slate-50 rounded-xl p-3 border border-slate-100">
-            <div>
-              <span className="text-slate-400 block text-[10px]">Kapasitas Maksimal</span>
-              <span className="font-semibold text-slate-700">{activeDevice.maxCapacityKg} kg</span>
-            </div>
-            <div>
-              <span className="text-slate-400 block text-[10px]">Akurasi Sensor</span>
-              <span className="font-semibold text-slate-700">±{activeDevice.precisionGram} gram</span>
-            </div>
-            <div>
-              <span className="text-slate-400 block text-[10px]">Kalibrasi Terakhir</span>
-              <span className="font-semibold text-slate-700">22 Okt 2026 (Presisi)</span>
-            </div>
-            <div>
-              <span className="text-slate-400 block text-[10px]">Koneksi / Ping</span>
-              <span className="font-semibold text-emerald-600">
-                {formatTimeOnlyID(activeDevice.lastHeartbeat)}
-              </span>
-            </div>
-          </div>
-
-          <button
-            onClick={() => setActiveTab('timbangan')}
-            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-100 py-2.5 text-xs font-bold text-slate-700 hover:bg-teal-50 hover:text-[#009CAC] transition-colors"
-          >
-            <span>Buka Ruang Penimbangan Mandiri</span>
-            <ChevronRight className="h-3.5 w-3.5" />
-          </button>
         </div>
 
-        {/* Operational Attention & Pending Alerts */}
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs lg:col-span-2">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 text-amber-500" />
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                Intelijen Operasional & Tindakan Cepat
-              </h2>
+        {/* SECTION 2: 21st.dev @ssychui Dark Interactive Hardware & Telemetry Stage */}
+        <div className="mt-6 rounded-3xl bg-[#0B0E14] p-5 sm:p-8 text-white shadow-xl border border-slate-900">
+          {/* Top micro-header inside dark stage */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-5">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-xs font-medium tracking-wide text-slate-300">
+                STASIUN AKTIF: {activeDevice.deviceCode} · {activeDevice.name}
+              </span>
             </div>
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
-              3 Perhatian
-            </span>
+
+            {/* Interactive Quick Weight & Threshold Triggers right inside the stage */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-slate-400 mr-1">Uji Beban Sensor:</span>
+              {[
+                { label: '0 kg', val: 0 },
+                { label: '12,5 kg', val: 12.5 },
+                { label: '48,0 kg', val: 48.0 },
+                {
+                  label: `Peringatan ${capacityWarningThresholdPct}% (${Math.round(activeDevice.maxCapacityKg * (capacityWarningThresholdPct / 100))}kg)`,
+                  val: Number((activeDevice.maxCapacityKg * (capacityWarningThresholdPct / 100)).toFixed(1)),
+                  tone: 'warn',
+                },
+                {
+                  label: `Kritis ${capacityCriticalThresholdPct}% (${Math.round(activeDevice.maxCapacityKg * (capacityCriticalThresholdPct / 100))}kg)`,
+                  val: Number((activeDevice.maxCapacityKg * (capacityCriticalThresholdPct / 100)).toFixed(1)),
+                  tone: 'crit',
+                },
+              ].map((preset) => (
+                <button
+                  key={preset.label}
+                  onClick={() => pushWeightSample(preset.val, true)}
+                  className={`rounded-lg px-2.5 py-1 text-[11px] font-medium transition cursor-pointer border ${
+                    simulatedWeightKg === preset.val
+                      ? preset.tone === 'crit'
+                        ? 'bg-rose-600 border-rose-500 text-white'
+                        : preset.tone === 'warn'
+                        ? 'bg-amber-500 border-amber-400 text-slate-950'
+                        : 'bg-[#009CAC] border-teal-400 text-white'
+                      : preset.tone === 'crit'
+                      ? 'bg-rose-950/50 border-rose-500/30 text-rose-300 hover:bg-rose-900/60'
+                      : preset.tone === 'warn'
+                      ? 'bg-amber-950/50 border-amber-500/30 text-amber-300 hover:bg-amber-900/60'
+                      : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="mt-4 space-y-3">
-            {/* Alert 1: Pending Withdrawal */}
-            {pendingWithdrawals.length > 0 ? (
-              <div className="flex items-center justify-between rounded-xl bg-amber-50/80 border border-amber-200/80 p-3 text-xs">
-                <div className="flex items-start gap-3">
-                  <div className="rounded-lg bg-amber-100 p-2 text-amber-800">
-                    <Wallet className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <p className="font-bold text-amber-900">
-                      {pendingWithdrawals.length} Permintaan Pencairan Saldo Menunggu Persetujuan
-                    </p>
-                    <p className="text-[11px] text-amber-700">
-                      Total {formatIDR(pendingWithdrawals.reduce((a, b) => a + b.amount, 0))} diajukan oleh nasabah.
-                    </p>
-                  </div>
+          {/* Center Interactive Terminal Box + 3D Isometric Ecosystem Stage */}
+          <div className="my-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+            {/* Left: @ssychui Terminal Box */}
+            <div className="lg:col-span-5 rounded-2xl border border-white/10 bg-[#111622] p-5 shadow-inner flex flex-col justify-between">
+              <div className="flex items-center justify-between border-b border-white/10 pb-3 text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="rounded-md bg-white/10 px-2 py-0.5 text-[11px] font-medium text-white">
+                    Telemetry Stream
+                  </span>
+                  <span className="text-[11px] text-slate-400 tabular-nums">
+                    Akurasi ±{activeDevice.precisionGram}g · Stabilitas {scaleStabilityScore}%
+                  </span>
                 </div>
                 <button
-                  onClick={() => setActiveTab('tabungan')}
-                  className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-amber-700 transition"
+                  onClick={tareScale}
+                  className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-white transition cursor-pointer"
                 >
-                  Verifikasi
+                  <RotateCcw className="h-3 w-3" />
+                  <span>tare</span>
                 </button>
               </div>
-            ) : (
-              <div className="flex items-center gap-2 rounded-xl bg-emerald-50/60 border border-emerald-100 p-3 text-xs text-emerald-800">
-                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                <span>Semua pengajuan pencairan saldo telah diproses tuntas.</span>
-              </div>
-            )}
 
-            {/* Alert 2: High Stock ready for collector */}
-            <div className="flex items-center justify-between rounded-xl bg-teal-50/70 border border-teal-200/60 p-3 text-xs">
-              <div className="flex items-start gap-3">
-                <div className="rounded-lg bg-teal-100 p-2 text-teal-800">
-                  <Boxes className="h-4 w-4" />
-                </div>
+              <div className="py-5 flex flex-col sm:flex-row sm:items-baseline justify-between gap-4">
                 <div>
-                  <p className="font-bold text-teal-950">
-                    Stok Kardus & Plastik PET Mencapai Batas Optimum Penjualan
-                  </p>
-                  <p className="text-[11px] text-teal-800">
-                    Kardus (480 kg) dan PET (245,5 kg) siap diangkut oleh CV Daur Mulya Pratama. Estimasi margin: Rp 1,45 Juta.
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setActiveTab('penjualan')}
-                className="rounded-lg bg-[#009CAC] px-3 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-teal-700 transition"
-              >
-                Jual ke Pengepul
-              </button>
-            </div>
-
-            {/* Alert 3: Routine Calibration check */}
-            <div className="flex items-center justify-between rounded-xl bg-slate-50 border border-slate-200/60 p-3 text-xs">
-              <div className="flex items-start gap-3">
-                <div className="rounded-lg bg-slate-200 p-2 text-slate-700">
-                  <Cpu className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="font-bold text-slate-800">Pemeriksaan Kalibrasi Timbangan Rutin</p>
-                  <p className="text-[11px] text-slate-500">
-                    Deviasi load-cell ESP32 saat ini berada di 0,02%. Kalibrasi berkala disarankan setiap 30 hari.
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setActiveTab('perangkat')}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition"
-              >
-                Cek Sensor
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Analytics Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Trend Penyetoran Sampah Mingguan */}
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs lg:col-span-2">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
-            <div>
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                Tren Penyetoran & Nilai Sampah (7 Hari Terakhir)
-              </h2>
-              <p className="text-[11px] text-slate-400">Volume akumulasi timbangan versus nilai Rupiah yang disetor</p>
-            </div>
-            <div className="flex items-center gap-3 text-xs font-semibold">
-              <span className="flex items-center gap-1.5 text-teal-700">
-                <span className="h-2.5 w-2.5 rounded-full bg-[#009CAC]" /> Volume (kg)
-              </span>
-              <span className="flex items-center gap-1.5 text-emerald-700">
-                <span className="h-2.5 w-2.5 rounded-full bg-[#159B70]" /> Nilai (Rp)
-              </span>
-            </div>
-          </div>
-
-          <div className="mt-4 h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorKg" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#009CAC" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#009CAC" stopOpacity={0.0} />
-                  </linearGradient>
-                  <linearGradient id="colorRp" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#159B70" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#159B70" stopOpacity={0.0} />
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
-                <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
-                <YAxis yAxisId="right" orientation="right" hide />
-                <Tooltip
-                  formatter={(value: any, name: any) => {
-                    if (name === 'Volume Sampah (kg)') return [`${value} kg`, name];
-                    if (name === 'Nilai Setoran (Rp)') return [formatIDR(value), name];
-                    return [value, name];
-                  }}
-                  contentStyle={{
-                    backgroundColor: '#0C2D57',
-                    borderRadius: '12px',
-                    color: '#fff',
-                    border: 'none',
-                    fontSize: '11px',
-                  }}
-                />
-                <Area
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey="beratKg"
-                  name="Volume Sampah (kg)"
-                  stroke="#009CAC"
-                  strokeWidth={2.5}
-                  fillOpacity={1}
-                  fill="url(#colorKg)"
-                />
-                <Area
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="nilaiRp"
-                  name="Nilai Setoran (Rp)"
-                  stroke="#159B70"
-                  strokeWidth={2}
-                  strokeDasharray="4 4"
-                  fillOpacity={1}
-                  fill="url(#colorRp)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Waste Composition Donut Chart */}
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs">
-          <div className="border-b border-slate-100 pb-3">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-              Komposisi Stok Gudang (kg)
-            </h2>
-            <p className="text-[11px] text-slate-400">Proporsi material daur ulang yang tersimpan</p>
-          </div>
-
-          <div className="relative mt-2 h-52 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={compositionData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={55}
-                  outerRadius={80}
-                  paddingAngle={4}
-                  dataKey="value"
-                >
-                  {compositionData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  formatter={(value: any) => [`${value} kg`, 'Stok']}
-                  contentStyle={{
-                    backgroundColor: '#0C2D57',
-                    borderRadius: '8px',
-                    color: '#fff',
-                    border: 'none',
-                    fontSize: '11px',
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-            {/* Center label */}
-            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-              <span className="text-[10px] uppercase font-bold text-slate-400">Total Stok</span>
-              <span className="text-base font-black text-slate-800 font-mono">
-                {Math.round(totalAvailableStockKg)} kg
-              </span>
-            </div>
-          </div>
-
-          {/* Mini Legend */}
-          <div className="mt-2 grid grid-cols-2 gap-1.5 max-h-28 overflow-y-auto text-[11px]">
-            {compositionData.map((item) => (
-              <div key={item.name} className="flex items-center gap-1.5 truncate">
-                <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
-                <span className="truncate text-slate-600">{item.name}:</span>
-                <span className="font-semibold text-slate-900 font-mono">{item.value} kg</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Recent Transactions Table */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
-          <div>
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-              Aktivitas Setoran Terbaru
-            </h2>
-            <p className="text-[11px] text-slate-400">Pencatatan transaksi timbangan dan kredit tabungan nasabah</p>
-          </div>
-          <button
-            onClick={() => setActiveTab('setoran')}
-            className="text-xs font-bold text-[#009CAC] hover:underline flex items-center gap-1 self-start sm:self-auto"
-          >
-            <span>Lihat Semua Transaksi</span>
-            <ChevronRight className="h-3.5 w-3.5" />
-          </button>
-        </div>
-
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                <th className="pb-3 pl-2">Kode & Waktu</th>
-                <th className="pb-3">Nasabah</th>
-                <th className="pb-3">Rincian Sampah</th>
-                <th className="pb-3 text-right">Total Berat</th>
-                <th className="pb-3 text-right">Nilai Rupiah</th>
-                <th className="pb-3">Metode</th>
-                <th className="pb-3">Operator</th>
-                <th className="pb-3 text-center">IoT Status</th>
-                <th className="pb-3 text-center">Aksi</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {deposits.slice(0, 6).map((tx) => (
-                <tr key={tx.id} className="transition-colors hover:bg-slate-50/80">
-                  <td className="py-3 pl-2">
-                    <p className="font-mono font-bold text-slate-900">{tx.transactionCode}</p>
-                    <p className="text-[10px] text-slate-400 font-mono">{formatDateTimeID(tx.timestamp)}</p>
-                  </td>
-                  <td className="py-3">
-                    <p className="font-bold text-slate-800">{tx.memberName}</p>
-                    <p className="text-[10px] font-mono text-[#009CAC]">{tx.memberCode}</p>
-                  </td>
-                  <td className="py-3 max-w-[200px]">
-                    <p className="truncate text-slate-700 text-[11px]">
-                      {tx.items.map((i) => `${i.categoryName} (${i.weightKg} kg)`).join(', ')}
-                    </p>
-                  </td>
-                  <td className="py-3 text-right font-mono font-bold text-slate-800">
-                    {formatWeight(tx.totalWeightKg)}
-                  </td>
-                  <td className="py-3 text-right font-mono font-black text-emerald-700">
-                    {formatIDR(tx.totalValue)}
-                  </td>
-                  <td className="py-3">
+                  <span className="text-[11px] uppercase tracking-wider text-slate-400 block mb-1">
+                    Pembacaan Beban Real-Time
+                  </span>
+                  <div className="flex items-baseline gap-2.5">
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                        tx.paymentMethod === 'tabungan'
-                          ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                          : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                      className={`text-4xl sm:text-6xl font-semibold tracking-tight tabular-nums ${
+                        currentCapacityPct >= capacityCriticalThresholdPct
+                          ? 'text-rose-400'
+                          : currentCapacityPct >= capacityWarningThresholdPct
+                          ? 'text-amber-300'
+                          : 'text-white'
                       }`}
                     >
-                      {tx.paymentMethod === 'tabungan' ? 'Tabungan' : 'Tunai'}
+                      {simulatedWeightKg.toFixed(2).replace('.', ',')}
                     </span>
-                  </td>
-                  <td className="py-3 text-slate-600 text-[11px]">{tx.operatorName}</td>
-                  <td className="py-3 text-center">
-                    {tx.isIotVerified ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200">
-                        <CheckCircle2 className="h-3 w-3 text-emerald-600" />
-                        IoT Valid
-                      </span>
-                    ) : (
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
-                        Manual
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-3 text-center">
-                    <button
-                      onClick={() => setSelectedReceipt(tx)}
-                      className="rounded-lg p-1.5 text-slate-500 hover:bg-teal-50 hover:text-[#009CAC] transition"
-                      title="Lihat Struk Setoran"
-                    >
-                      <FileText className="h-4 w-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                    <span className="text-xl font-medium text-[#009CAC]">kg</span>
+                  </div>
+                </div>
 
-      {/* Struk Modal */}
-      {selectedReceipt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-[#009CAC]" />
-                <h3 className="font-bold text-slate-800">Bukti Setoran Sampah Digital</h3>
+                <div className="sm:text-right space-y-1">
+                  <span className="text-[11px] text-slate-400 block">
+                    Utilisasi Kapasitas ({activeDevice.maxCapacityKg} kg)
+                  </span>
+                  <span
+                    className={`text-lg font-semibold tabular-nums ${
+                      currentCapacityPct >= capacityCriticalThresholdPct
+                        ? 'text-rose-400'
+                        : currentCapacityPct >= capacityWarningThresholdPct
+                        ? 'text-amber-300'
+                        : 'text-emerald-400'
+                    }`}
+                  >
+                    {currentCapacityPct}% ·{' '}
+                    {currentCapacityPct >= capacityCriticalThresholdPct
+                      ? 'KRITIS'
+                      : currentCapacityPct >= capacityWarningThresholdPct
+                      ? 'PERINGATAN'
+                      : isScaleStable
+                      ? 'STABIL'
+                      : 'MENGUKUR'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Capacity Threshold Bar + 4-Quad Load Cell Telemetry Grid inside dark terminal */}
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-2.5 text-[11px]">
+                  <div>
+                    <span className="block text-[10px] text-slate-400">Sensor ADC</span>
+                    <span className="font-mono font-semibold text-slate-200 tabular-nums">HX711 · 80Hz</span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] text-slate-400">Keseimbangan</span>
+                    <span className="font-mono font-semibold text-teal-300 tabular-nums">4-Titik Rata</span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] text-slate-400">Sinkronisasi</span>
+                    <span className="font-mono font-semibold text-emerald-400 tabular-nums">Hafi Cloud</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-200 ${
+                        currentCapacityPct >= capacityCriticalThresholdPct
+                          ? 'bg-rose-500'
+                          : currentCapacityPct >= capacityWarningThresholdPct
+                          ? 'bg-amber-400'
+                          : 'bg-[#009CAC]'
+                      }`}
+                      style={{ width: `${Math.min(100, currentCapacityPct)}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[11px] text-slate-500 tabular-nums">
+                    <span># ambang peringatan ≥{capacityWarningThresholdPct}% · kritis ≥{capacityCriticalThresholdPct}%</span>
+                    <span>heartbeat {formatTimeOnlyID(activeDevice.lastHeartbeat)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Interactive 3D Isometric Command & Sorting Ecosystem Hub */}
+            <div className="lg:col-span-7">
+              <IsometricEcosystemStage3D
+                weightKg={simulatedWeightKg}
+                maxCapacityKg={activeDevice.maxCapacityKg}
+                warningThresholdPct={capacityWarningThresholdPct}
+                criticalThresholdPct={capacityCriticalThresholdPct}
+                scaleState={scaleState}
+                isStable={isScaleStable}
+                plastikStockKg={currentWeekStats.plastikKg}
+                kertasStockKg={currentWeekStats.kertasKg}
+                logamStockKg={currentWeekStats.logamKacaKg}
+                activeMembersCount={activeMembersCount}
+                todayDepositsCount={todayDeposits.length}
+                totalWalletBalance={totalMemberBalances}
+                onSelectModule={(tab) => setActiveTab(tab)}
+              />
+            </div>
+          </div>
+
+          {/* Bottom Two-Tone Caption (21st.dev @ssychui signature) */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
+            <p className="text-lg sm:text-xl font-medium tracking-tight">
+              <span className="text-white">Presisi sensor real-time</span>{' '}
+              <span className="text-slate-500">terhubung langsung ke buku besar.</span>
+            </p>
+            <button
+              onClick={() => setActiveTab('timbangan')}
+              className="inline-flex items-center gap-2 rounded-full bg-white text-slate-950 hover:bg-slate-100 px-4 py-2 text-xs font-semibold transition cursor-pointer"
+            >
+              <Cpu className="h-3.5 w-3.5 text-[#009CAC]" />
+              <span>Buka Terminal Penimbangan Penuh</span>
+              <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 3: Floffice Unboxed Typographic Metrics + Weekly Productivity Chart */}
+      <section className="pt-2">
+        <div className="flex items-center gap-2 text-[11px] font-medium tracking-[0.14em] uppercase text-slate-500 mb-6">
+          <span className="h-2.5 w-2.5 bg-slate-900 inline-block" />
+          <span>INDIKATOR EKSEKUTIF & PRODUKTIVITAS MINGGUAN</span>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
+          {/* Left (5 cols): Floffice Unboxed Typographic Numbers Grid */}
+          <div className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-8 pt-2">
+            {editorialMetrics.map((m, idx) => (
+              <motion.div
+                key={m.label}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.18, delay: idx * 0.04 }}
+                onClick={() => setActiveTab(m.actionTab)}
+                className="group cursor-pointer border-t border-slate-200 pt-4"
+              >
+                <div className="text-3xl sm:text-4xl font-normal tracking-tight text-slate-950 group-hover:text-[#009CAC] transition-colors">
+                  {m.number}
+                </div>
+                <div className="mt-2 text-[11px] font-semibold tracking-[0.08em] uppercase text-slate-800">
+                  {m.label}
+                </div>
+                <p className="mt-1.5 text-xs text-slate-500 leading-relaxed">
+                  {m.desc}
+                </p>
+              </motion.div>
+            ))}
+
+            {/* Secondary Two-Column Summary Strip */}
+            <div className="sm:col-span-2 border-t border-slate-200 pt-4 flex items-center justify-between text-xs">
+              <div>
+                <span className="text-slate-400 block text-[11px] uppercase tracking-wider">
+                  Laba Kotor Pengepul
+                </span>
+                <span className="text-base font-semibold text-emerald-700">
+                  {formatIDR(totalRealizedMargin)}
+                </span>
+              </div>
+              <div className="h-6 w-px bg-slate-200" />
+              <div>
+                <span className="text-slate-400 block text-[11px] uppercase tracking-wider">
+                  Pertumbuhan Mingguan
+                </span>
+                <span className="text-base font-semibold text-slate-900">
+                  {Number(weeklyGrowthPct) >= 0 ? `+${weeklyGrowthPct}%` : `${weeklyGrowthPct}%`} vs M3 Okt
+                </span>
               </div>
               <button
-                onClick={() => setSelectedReceipt(null)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                onClick={() => setActiveTab('keuangan')}
+                className="inline-flex items-center gap-1 text-xs font-medium text-[#009CAC] hover:underline cursor-pointer"
               >
-                <X className="h-5 w-5" />
+                <span>Neraca</span>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Right (7 cols): Editorial Headline + Recharts Weekly Waste Volume Visualization */}
+          <div className="lg:col-span-7 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+              <div>
+                <h2 className="text-2xl sm:text-3xl font-normal tracking-tight text-slate-950 leading-snug">
+                  Tren volume sampah per minggu{' '}
+                  <span className="text-slate-400">secara real-time.</span>
+                </h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  Minggu berjalan:{' '}
+                  <span className="font-semibold text-slate-900">{currentWeekStats.totalKg} kg</span>
+                  {' · '}Rata-rata 8 pekan:{' '}
+                  <span className="font-medium text-slate-700">{avgWeeklyKg} kg/minggu</span>
+                  {' · '}Target: <span className="font-medium text-amber-600">350 kg</span>
+                </p>
+              </div>
+
+              {/* Clean Segmented Switchers */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {chartTimeframe === 'weekly' && (
+                  <div className="flex items-center rounded-full border border-slate-200 bg-slate-50 p-0.5">
+                    <button
+                      onClick={() => setWeeklyChartMode('stacked')}
+                      className={`flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium transition-colors cursor-pointer ${
+                        weeklyChartMode === 'stacked'
+                          ? 'bg-slate-950 text-white'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <BarChart3 className="h-3 w-3" />
+                      <span>Kategori</span>
+                    </button>
+                    <button
+                      onClick={() => setWeeklyChartMode('area')}
+                      className={`flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium transition-colors cursor-pointer ${
+                        weeklyChartMode === 'area'
+                          ? 'bg-slate-950 text-white'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <Activity className="h-3 w-3" />
+                      <span>Total Volume</span>
+                    </button>
+                  </div>
+                )}
+
+                <div className="flex items-center rounded-full border border-slate-200 bg-slate-50 p-0.5">
+                  <button
+                    onClick={() => setChartTimeframe('weekly')}
+                    className={`rounded-full px-3 py-1 text-[11px] font-medium transition-colors cursor-pointer ${
+                      chartTimeframe === 'weekly'
+                        ? 'bg-slate-950 text-white'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Per Minggu
+                  </button>
+                  <button
+                    onClick={() => setChartTimeframe('daily')}
+                    className={`rounded-full px-3 py-1 text-[11px] font-medium transition-colors cursor-pointer ${
+                      chartTimeframe === 'daily'
+                        ? 'bg-slate-950 text-white'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    7 Hari
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Framed Architectural Chart Surface */}
+            <div className="rounded-2xl border border-slate-200/90 bg-[#FAFAFA] p-5">
+              {chartTimeframe === 'weekly' && (
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+                  <div className="flex flex-wrap items-center gap-4">
+                    {weeklyChartMode === 'stacked' ? (
+                      <>
+                        <span className="flex items-center gap-1.5">
+                          <span className="h-2.5 w-2.5 rounded-xs bg-[#009CAC]" />
+                          Plastik
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="h-2.5 w-2.5 rounded-xs bg-[#159B70]" />
+                          Kertas & Kardus
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="h-2.5 w-2.5 rounded-xs bg-[#0C2D57]" />
+                          Logam & Kaca
+                        </span>
+                      </>
+                    ) : (
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-2.5 w-2.5 rounded-xs bg-[#009CAC]" />
+                        Total Volume Mingguan (kg)
+                      </span>
+                    )}
+                  </div>
+                  <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                    <span className="h-0.5 w-3 border-t border-dashed border-amber-500" />
+                    Target Produktivitas: 350 kg/minggu
+                  </span>
+                </div>
+              )}
+
+              <div className="h-60 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  {chartTimeframe === 'weekly' ? (
+                    weeklyChartMode === 'stacked' ? (
+                      <ComposedChart
+                        data={weeklyTrendData}
+                        margin={{ top: 10, right: 10, left: -18, bottom: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                        <XAxis
+                          dataKey="weekLabel"
+                          tick={{ fontSize: 11, fill: '#64748B' }}
+                          axisLine={false}
+                          tickLine={false}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 11, fill: '#64748B' }}
+                          axisLine={false}
+                          tickLine={false}
+                          unit=" kg"
+                        />
+                        <Tooltip content={<CustomWeeklyTooltip />} />
+                        <ReferenceLine
+                          y={350}
+                          stroke="#F59E0B"
+                          strokeDasharray="4 4"
+                          strokeWidth={1.5}
+                        />
+                        <Bar
+                          dataKey="plastikKg"
+                          name="Plastik"
+                          stackId="weeklyVolume"
+                          fill="#009CAC"
+                          barSize={28}
+                        />
+                        <Bar
+                          dataKey="kertasKg"
+                          name="Kertas & Kardus"
+                          stackId="weeklyVolume"
+                          fill="#159B70"
+                          barSize={28}
+                        />
+                        <Bar
+                          dataKey="logamKacaKg"
+                          name="Logam & Kaca"
+                          stackId="weeklyVolume"
+                          fill="#0C2D57"
+                          radius={[4, 4, 0, 0]}
+                          barSize={28}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="totalKg"
+                          name="Total Volume"
+                          stroke="#0F172A"
+                          strokeWidth={1.75}
+                          dot={{ r: 3, fill: '#0F172A', strokeWidth: 1.5, stroke: '#fff' }}
+                          activeDot={{ r: 5 }}
+                        />
+                      </ComposedChart>
+                    ) : (
+                      <AreaChart
+                        data={weeklyTrendData}
+                        margin={{ top: 10, right: 10, left: -18, bottom: 0 }}
+                      >
+                        <defs>
+                          <linearGradient id="weeklyVolumeGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#009CAC" stopOpacity={0.28} />
+                            <stop offset="95%" stopColor="#009CAC" stopOpacity={0.0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                        <XAxis
+                          dataKey="weekLabel"
+                          tick={{ fontSize: 11, fill: '#64748B' }}
+                          axisLine={false}
+                          tickLine={false}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 11, fill: '#64748B' }}
+                          axisLine={false}
+                          tickLine={false}
+                          unit=" kg"
+                        />
+                        <Tooltip content={<CustomWeeklyTooltip />} />
+                        <ReferenceLine
+                          y={350}
+                          stroke="#F59E0B"
+                          strokeDasharray="4 4"
+                          strokeWidth={1.5}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="totalKg"
+                          name="Total Volume (kg)"
+                          stroke="#009CAC"
+                          strokeWidth={2.25}
+                          fillOpacity={1}
+                          fill="url(#weeklyVolumeGrad)"
+                          dot={{ r: 3.5, fill: '#009CAC', strokeWidth: 1.5, stroke: '#fff' }}
+                          activeDot={{ r: 5 }}
+                        />
+                      </AreaChart>
+                    )
+                  ) : (
+                    <AreaChart data={dailyTrendData} margin={{ top: 10, right: 10, left: -18, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="colorKgDaily" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#009CAC" stopOpacity={0.25} />
+                          <stop offset="95%" stopColor="#009CAC" stopOpacity={0.0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                      <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
+                      <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
+                      <YAxis yAxisId="right" orientation="right" hide />
+                      <Tooltip
+                        formatter={(value: any, name: any) => {
+                          if (name === 'Volume (kg)') return [`${value} kg`, name];
+                          if (name === 'Nilai (Rp)') return [formatIDR(value), name];
+                          return [value, name];
+                        }}
+                        contentStyle={{
+                          backgroundColor: '#0C2D57',
+                          borderRadius: '8px',
+                          color: '#fff',
+                          border: 'none',
+                          fontSize: '11px',
+                        }}
+                      />
+                      <Area
+                        yAxisId="left"
+                        type="monotone"
+                        dataKey="beratKg"
+                        name="Volume (kg)"
+                        stroke="#009CAC"
+                        strokeWidth={2}
+                        fillOpacity={1}
+                        fill="url(#colorKgDaily)"
+                      />
+                      <Area
+                        yAxisId="right"
+                        type="monotone"
+                        dataKey="nilaiRp"
+                        name="Nilai (Rp)"
+                        stroke="#159B70"
+                        strokeWidth={1.5}
+                        strokeDasharray="4 4"
+                        fill="none"
+                      />
+                    </AreaChart>
+                  )}
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 4: Asymmetric Editorial Split — Warehouse Composition & Recent Ledger */}
+      <section className="border-t border-slate-200/80 pt-10 grid grid-cols-1 lg:grid-cols-12 gap-10">
+        {/* Left (4 cols): Komposisi Gudang */}
+        <div className="lg:col-span-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-[11px] font-medium tracking-[0.12em] uppercase text-slate-500">
+                <span className="h-2 w-2 bg-[#009CAC] inline-block" />
+                <span>INVENTARIS GUDANG</span>
+              </div>
+              <h3 className="mt-1 text-xl font-normal tracking-tight text-slate-950">
+                Komposisi material{' '}
+                <span className="text-slate-400">({Math.round(totalAvailableStockKg)} kg)</span>
+              </h3>
+            </div>
+            <button
+              onClick={() => setActiveTab('penjualan')}
+              className="text-xs font-medium text-[#009CAC] hover:underline cursor-pointer"
+            >
+              Jual Stok →
+            </button>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200/80 bg-[#FAFAFA] p-5">
+            <div className="h-40 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={compositionData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={44}
+                    outerRadius={66}
+                    paddingAngle={3}
+                    dataKey="value"
+                  >
+                    {compositionData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value: any) => [`${value} kg`, 'Stok']}
+                    contentStyle={{
+                      backgroundColor: '#0C2D57',
+                      borderRadius: '8px',
+                      color: '#fff',
+                      border: 'none',
+                      fontSize: '11px',
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="mt-3 space-y-2 border-t border-slate-200/70 pt-3">
+              {compositionData.slice(0, 5).map((item) => {
+                const sharePct =
+                  totalAvailableStockKg > 0
+                    ? Math.round((item.value / totalAvailableStockKg) * 100)
+                    : 0;
+                return (
+                  <div key={item.name} className="space-y-1 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-700 font-medium truncate">{item.name}</span>
+                      <span className="text-slate-900 font-semibold">
+                        {item.value} kg <span className="text-slate-400 font-normal">({sharePct}%)</span>
+                      </span>
+                    </div>
+                    <div className="h-1 w-full rounded-full bg-slate-200 overflow-hidden">
+                      <div
+                        className="h-full rounded-full"
+                        style={{ width: `${sharePct}%`, backgroundColor: item.color }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Right (8 cols): Clean Editorial Ledger Table */}
+        <div className="lg:col-span-8 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-[11px] font-medium tracking-[0.12em] uppercase text-slate-500">
+                <span className="h-2 w-2 bg-emerald-600 inline-block" />
+                <span>BUKU BESAR TRANSAKSI</span>
+              </div>
+              <h3 className="mt-1 text-xl font-normal tracking-tight text-slate-950">
+                Setoran warga terbaru{' '}
+                <span className="text-slate-400">terverifikasi sistem.</span>
+              </h3>
+            </div>
+            <button
+              onClick={() => setActiveTab('setoran')}
+              className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-slate-950 cursor-pointer"
+            >
+              <span>Lihat Semua ({deposits.length})</span>
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          <div className="overflow-x-auto border-t border-slate-200">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 text-[11px] font-medium uppercase tracking-wider text-slate-400">
+                  <th className="py-3 pl-1">Kode & Waktu</th>
+                  <th className="py-3">Nasabah</th>
+                  <th className="py-3">Material</th>
+                  <th className="py-3 text-right">Berat</th>
+                  <th className="py-3 text-right">Nilai</th>
+                  <th className="py-3">Metode</th>
+                  <th className="py-3 text-right pr-1">Struk</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {deposits.slice(0, 6).map((tx) => (
+                  <tr key={tx.id} className="hover:bg-slate-50/90 transition-colors">
+                    <td className="py-3 pl-1">
+                      <span className="font-semibold text-slate-900">{tx.transactionCode}</span>
+                      <span className="block text-[10px] text-slate-400">{formatDateTimeID(tx.timestamp)}</span>
+                    </td>
+                    <td className="py-3">
+                      <span className="font-medium text-slate-900">{tx.memberName}</span>
+                      <span className="block text-[10px] text-slate-400">{tx.memberCode}</span>
+                    </td>
+                    <td className="py-3 max-w-[210px] truncate text-slate-600">
+                      {tx.items.map((i) => `${i.categoryName.split(' (')[0]} (${i.weightKg}kg)`).join(', ')}
+                    </td>
+                    <td className="py-3 text-right font-semibold text-slate-900">
+                      {formatWeight(tx.totalWeightKg)}
+                    </td>
+                    <td className="py-3 text-right font-semibold text-emerald-700">
+                      {formatIDR(tx.totalValue)}
+                    </td>
+                    <td className="py-3 text-[11px] text-slate-500 whitespace-nowrap">
+                      <span className="capitalize">{tx.paymentMethod}</span>
+                      <span aria-hidden="true"> · </span>
+                      <span>{tx.isIotVerified ? 'IoT' : 'Manual'}</span>
+                    </td>
+                    <td className="py-3 text-right pr-1">
+                      <button
+                        onClick={() => setSelectedReceipt(tx)}
+                        className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-200/60 hover:text-slate-950 transition cursor-pointer"
+                        aria-label={`Struk ${tx.transactionCode}`}
+                      >
+                        <FileText className="h-4 w-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      {/* Receipt Modal */}
+      {selectedReceipt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+              <h3 className="text-sm font-semibold text-slate-900">Bukti Setoran Digital</h3>
+              <button
+                onClick={() => setSelectedReceipt(null)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
+              >
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 font-mono text-xs text-slate-700 space-y-3">
+            <div className="mt-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-xs text-slate-700 space-y-2.5">
               <div className="text-center border-b border-dashed border-slate-300 pb-2">
-                <p className="font-black text-sm text-slate-900 tracking-wider">PILAH.IN WASTE BANK</p>
-                <p className="text-[10px] text-slate-500">Unit Sukamaju • Jakarta Selatan</p>
-                <p className="text-[10px] text-slate-400">{selectedReceipt.transactionCode}</p>
+                <p className="font-semibold text-slate-900">PILAH.IN — UNIT SUKAMAJU</p>
+                <p className="text-[10px] font-semibold text-[#009CAC] uppercase">
+                  Dalam Naungan Hafi Digital
+                </p>
+                <p className="text-[10px] text-slate-500 mt-0.5">
+                  {selectedReceipt.transactionCode} · {formatDateTimeID(selectedReceipt.timestamp)}
+                </p>
               </div>
 
               <div className="space-y-1 text-[11px]">
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Tanggal:</span>
-                  <span>{formatDateTimeID(selectedReceipt.timestamp)}</span>
-                </div>
-                <div className="flex justify-between">
                   <span className="text-slate-500">Nasabah:</span>
-                  <span className="font-bold">{selectedReceipt.memberName} ({selectedReceipt.memberCode})</span>
+                  <span className="font-semibold">
+                    {selectedReceipt.memberName} ({selectedReceipt.memberCode})
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Petugas:</span>
                   <span>{selectedReceipt.operatorName}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Timbangan:</span>
-                  <span>{selectedReceipt.weighingStationId || 'ESP32-SCALE-01'}</span>
-                </div>
               </div>
 
-              <div className="border-t border-dashed border-slate-300 pt-2 space-y-1.5">
+              <div className="border-t border-dashed border-slate-300 pt-2 space-y-1">
                 {selectedReceipt.items.map((item, idx) => (
                   <div key={idx} className="flex justify-between text-[11px]">
-                    <div>
-                      <p className="font-semibold">{item.categoryName}</p>
-                      <p className="text-[10px] text-slate-400">{item.weightKg} kg × {formatIDR(item.pricePerKgSnapshot)}</p>
-                    </div>
-                    <span className="font-bold">{formatIDR(item.subtotal)}</span>
+                    <span>
+                      {item.categoryName.split(' (')[0]} ({item.weightKg} kg)
+                    </span>
+                    <span className="font-semibold">{formatIDR(item.subtotal)}</span>
                   </div>
                 ))}
               </div>
 
-              <div className="border-t border-dashed border-slate-300 pt-2 space-y-1">
-                <div className="flex justify-between font-bold text-slate-900 text-xs">
-                  <span>TOTAL BERAT:</span>
-                  <span>{formatWeight(selectedReceipt.totalWeightKg)}</span>
-                </div>
-                <div className="flex justify-between font-black text-emerald-700 text-sm">
-                  <span>TOTAL DITERIMA:</span>
-                  <span>{formatIDR(selectedReceipt.totalValue)}</span>
-                </div>
-                <div className="flex justify-between text-[10px] text-slate-500">
-                  <span>Penyaluran:</span>
-                  <span className="uppercase font-semibold">
-                    {selectedReceipt.paymentMethod === 'tabungan' ? 'Dikreditkan ke Tabungan' : 'Dibayar Tunai'}
-                  </span>
-                </div>
-              </div>
-
-              <div className="text-center text-[10px] text-slate-400 border-t border-dashed border-slate-300 pt-2">
-                "Sampah Bernilai, Masa Depan Berkelanjutan."
+              <div className="border-t border-dashed border-slate-300 pt-2 flex justify-between font-semibold text-emerald-700 text-sm">
+                <span>TOTAL:</span>
+                <span>{formatIDR(selectedReceipt.totalValue)}</span>
               </div>
             </div>
 
             <div className="mt-4 flex gap-2">
               <button
                 onClick={() => window.print()}
-                className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-[#0C2D57] py-2.5 text-xs font-bold text-white hover:bg-[#071f3e] transition"
+                className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-[#0C2D57] py-2 text-xs font-semibold text-white hover:bg-[#071f3e]"
               >
-                <Printer className="h-4 w-4" />
-                <span>Cetak Bukti</span>
+                <Printer className="h-3.5 w-3.5" />
+                <span>Cetak</span>
               </button>
               <button
                 onClick={() => setSelectedReceipt(null)}
-                className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+                className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
               >
                 Tutup
               </button>

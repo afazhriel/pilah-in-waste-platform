@@ -67,38 +67,35 @@ export const InventoryManager: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl bg-white p-5 border border-slate-200/80 shadow-xs">
+    <div className="space-y-4 pb-10">
+      {/* Compact Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <span className="rounded-md bg-teal-50 text-[#009CAC] px-2.5 py-0.5 text-xs font-bold border border-teal-200">
-            LOGISTIK & PERGUDANGAN
-          </span>
-          <h1 className="mt-1 text-xl font-black text-slate-900 tracking-tight lg:text-2xl">
-            Inventaris & Rekonsiliasi Gudang
+          <h1 className="text-lg font-extrabold text-slate-900 tracking-tight">
+            Inventaris Gudang
           </h1>
           <p className="text-xs text-slate-500">
-            Audit fisik kuantitas material daur ulang masuk, keluar ke pengepul, dan kalkulasi valuasi aset bahan baku.
+            Stok material daur ulang, valuasi aset, dan rekonsiliasi fisik
           </p>
         </div>
 
         {/* Tab switch */}
-        <div className="flex rounded-xl bg-slate-100 p-1">
+        <div className="flex rounded-lg bg-slate-200/70 p-0.5">
           <button
             onClick={() => setActiveTabSub('warehouse')}
-            className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+            className={`rounded-md px-3 py-1.5 text-xs font-bold transition ${
               activeTabSub === 'warehouse' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
             }`}
           >
-            Stok Gudang Real-time
+            Stok Gudang
           </button>
           <button
             onClick={() => setActiveTabSub('movements')}
-            className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+            className={`rounded-md px-3 py-1.5 text-xs font-bold transition ${
               activeTabSub === 'movements' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
             }`}
           >
-            Mutasi Barang Masuk/Keluar ({inventoryMovements.length})
+            Mutasi Barang ({inventoryMovements.length})
           </button>
         </div>
       </div>

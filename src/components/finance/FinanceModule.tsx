@@ -78,34 +78,31 @@ export const FinanceModule: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl bg-white p-5 border border-slate-200/80 shadow-xs">
+    <div className="space-y-4 pb-10">
+      {/* Compact Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <span className="rounded-md bg-teal-50 text-[#009CAC] px-2.5 py-0.5 text-xs font-bold border border-teal-200">
-            AKUNTANSI & KEUANGAN
-          </span>
-          <h1 className="mt-1 text-xl font-black text-slate-900 tracking-tight lg:text-2xl">
-            Laporan Keuangan & Rekonsiliasi Kas
+          <h1 className="text-lg font-extrabold text-slate-900 tracking-tight">
+            Keuangan & Laba Rugi
           </h1>
           <p className="text-xs text-slate-500">
-            Pemisahan ketat antara liabilitas tabungan nasabah, pendapatan riil penjualan pengepul, dan laba bersih operasional.
+            Rekonsiliasi omzet pengepul, HPP nasabah, dan beban operasional
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             onClick={() => setIsExpenseModalOpen(true)}
-            className="flex items-center gap-1.5 rounded-xl bg-[#009CAC] px-4 py-2 text-xs font-bold text-white hover:bg-teal-700 transition shadow-xs"
+            className="flex items-center gap-1.5 rounded-lg bg-[#009CAC] px-3.5 py-1.5 text-xs font-bold text-white hover:bg-teal-700 transition shadow-xs"
           >
-            <Plus className="h-4 w-4" />
-            <span>+ Catat Beban Operasional</span>
+            <Plus className="h-3.5 w-3.5" />
+            <span>Catat Beban</span>
           </button>
           <button
             onClick={() => window.print()}
-            className="flex items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
           >
-            <Printer className="h-4 w-4" />
+            <Printer className="h-3.5 w-3.5" />
             <span>Cetak Neraca</span>
           </button>
         </div>

@@ -55,6 +55,20 @@ export interface NotificationItem {
   type: 'info' | 'success' | 'warning' | 'alert';
   timestamp: string;
   read: boolean;
+  deviceCode?: string;
+  capacityPct?: number;
+  actionTab?: NavTab;
+}
+
+export interface ApiRequestLog {
+  id: string;
+  timestamp: string;
+  method: string;
+  endpoint: string;
+  statusCode: number;
+  latencyMs: number;
+  source: 'WEB-CLIENT' | 'ESP32-NODE' | 'SYSTEM';
+  summary: string;
 }
 
 interface AppContextType {
@@ -72,6 +86,12 @@ interface AppContextType {
   notifications: NotificationItem[];
   markNotificationAsRead: (id: string) => void;
   clearNotifications: () => void;
+  activeToastAlerts: NotificationItem[];
+  dismissToastAlert: (id: string) => void;
+  capacityWarningThresholdPct: number;
+  capacityCriticalThresholdPct: number;
+  setCapacityThresholds: (warningPct: number, criticalPct: number) => void;
+  currentCapacityPct: number;
   
   // Domain State
   wasteCategories: WasteCategory[];
@@ -135,6 +155,28 @@ interface AppContextType {
   tareScale: () => void;
   toggleDeviceStatus: (deviceId: string) => void;
   pushWeightSample: (targetKg: number, forceStable?: boolean) => void;
+
+  // QR Member Identification
+  scannedMemberId: string | null;
+  setScannedMemberId: (id: string | null) => void;
+  recordQrMemberScan: (member: Member, source: string) => void;
+
+  // Backend & REST API Integration
+  apiStatus: 'connecting' | 'online' | 'offline';
+  apiLatencyMs: number;
+  lastSyncedAt: string | null;
+  apiRequestLogs: ApiRequestLog[];
+  refreshFromBackend: () => Promise<void>;
+  sendIotTelemetryWebhook: (payload?: {
+    deviceCode?: string;
+    weightKg?: number;
+    isStable?: boolean;
+  }) => Promise<{ success: boolean; message: string; statusCode: number }>;
+  calibrateDeviceViaApi: (
+    deviceId: string,
+    referenceWeightKg: number,
+    customFactor?: number
+  ) => Promise<{ success: boolean; message: string; newFactor?: number }>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -147,6 +189,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currentBranchId, setCurrentBranchId] = useState<string>('b-01');
   const [isDemoMode, setIsDemoMode] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [scannedMemberId, setScannedMemberId] = useState<string | null>(null);
 
   const currentUser = {
     id: 'op-01',
@@ -226,16 +269,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       type: 'success',
       timestamp: new Date().toISOString(),
       read: false,
+      deviceCode: 'ESP32-SCALE-01',
+      actionTab: 'timbangan',
     },
     {
       id: 'notif-2',
-      title: 'Stok Kardus Melimpah',
+      title: 'Stok Kardus Siap Angkut',
       message: 'Stok kardus telah mencapai 480 kg, direkomendasikan jadwal jemput pengepul.',
       type: 'info',
       timestamp: new Date().toISOString(),
       read: false,
+      actionTab: 'penjualan',
     },
   ]);
+
+  const [activeToastAlerts, setActiveToastAlerts] = useState<NotificationItem[]>([]);
+  const [capacityWarningThresholdPct, setCapacityWarningThresholdPct] = useState<number>(80);
+  const [capacityCriticalThresholdPct, setCapacityCriticalThresholdPct] = useState<number>(95);
+  const [lastDeviceAlertZone, setLastDeviceAlertZone] = useState<Record<string, 'normal' | 'warning' | 'critical'>>({});
 
   // IoT Station state
   const [activeDeviceId, setActiveDeviceId] = useState<string>('dev-01');
@@ -245,7 +296,68 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isScaleStable, setIsScaleStable] = useState<boolean>(true);
   const [scaleState, setScaleState] = useState<ScaleState>('IDLE');
 
-  // Sync to local storage
+  // Backend API Connection State
+  const [apiStatus, setApiStatus] = useState<'connecting' | 'online' | 'offline'>('connecting');
+  const [apiLatencyMs, setApiLatencyMs] = useState<number>(8);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [apiRequestLogs, setApiRequestLogs] = useState<ApiRequestLog[]>([]);
+  const [isHydratedFromApi, setIsHydratedFromApi] = useState<boolean>(false);
+
+  const appendClientApiLog = (entry: Omit<ApiRequestLog, 'id' | 'timestamp'>) => {
+    setApiRequestLogs((prev) => [
+      {
+        id: `log-${Date.now()}-${Math.floor(Math.random() * 999)}`,
+        timestamp: new Date().toISOString(),
+        ...entry,
+      },
+      ...prev.slice(0, 39),
+    ]);
+  };
+
+  const refreshFromBackend = async () => {
+    const start = performance.now();
+    try {
+      const res = await fetch('/api/bootstrap', {
+        headers: { Accept: 'application/json' },
+      });
+      const latency = Math.max(1, Math.round(performance.now() - start));
+      if (!res.ok) {
+        setApiStatus('offline');
+        return;
+      }
+      const json = await res.json();
+      if (json && json.success && json.data) {
+        const d = json.data;
+        if (Array.isArray(d.wasteCategories)) setWasteCategories(d.wasteCategories);
+        if (Array.isArray(d.priceHistory)) setPriceHistory(d.priceHistory);
+        if (Array.isArray(d.members)) setMembers(d.members);
+        if (Array.isArray(d.deposits)) setDeposits(d.deposits);
+        if (Array.isArray(d.walletLedger)) setWalletLedger(d.walletLedger);
+        if (Array.isArray(d.inventoryStocks)) setInventoryStocks(d.inventoryStocks);
+        if (Array.isArray(d.inventoryMovements)) setInventoryMovements(d.inventoryMovements);
+        if (Array.isArray(d.collectorSales)) setCollectorSales(d.collectorSales);
+        if (Array.isArray(d.expenses)) setExpenses(d.expenses);
+        if (Array.isArray(d.withdrawalRequests)) setWithdrawalRequests(d.withdrawalRequests);
+        if (Array.isArray(d.devices)) setDevices(d.devices);
+        if (Array.isArray(d.auditLogs)) setAuditLogs(d.auditLogs);
+        if (Array.isArray(json.recentLogs)) setApiRequestLogs(json.recentLogs);
+        setApiStatus('online');
+        setApiLatencyMs(latency);
+        setLastSyncedAt(json.updatedAt || new Date().toISOString());
+        setIsHydratedFromApi(true);
+      }
+    } catch {
+      setApiStatus('offline');
+      setIsHydratedFromApi(true);
+    }
+  };
+
+  // Initial Hydration from Express Backend (/api/bootstrap)
+  useEffect(() => {
+    refreshFromBackend();
+  }, []);
+
+  // Sync to localStorage AND Express Backend (/api/sync) on state mutations
   useEffect(() => {
     try {
       localStorage.setItem(`${STORAGE_KEY}_categories`, JSON.stringify(wasteCategories));
@@ -263,7 +375,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {
       // storage quota or private browsing mode
     }
+
+    if (!isHydratedFromApi) return;
+
+    const timer = setTimeout(async () => {
+      const start = performance.now();
+      try {
+        const res = await fetch('/api/sync', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            wasteCategories,
+            priceHistory,
+            members,
+            deposits,
+            walletLedger,
+            inventoryStocks,
+            inventoryMovements,
+            collectorSales,
+            expenses,
+            withdrawalRequests,
+            devices,
+            auditLogs,
+          }),
+        });
+        const latency = Math.max(1, Math.round(performance.now() - start));
+        if (res.ok) {
+          const data = await res.json();
+          setApiStatus('online');
+          setApiLatencyMs(latency);
+          setLastSyncedAt(data.updatedAt || new Date().toISOString());
+        }
+      } catch {
+        setApiStatus('offline');
+      }
+    }, 200);
+
+    return () => clearTimeout(timer);
   }, [
+    isHydratedFromApi,
     wasteCategories,
     members,
     deposits,
@@ -286,9 +436,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const clearNotifications = () => {
     setNotifications([]);
+    setActiveToastAlerts([]);
   };
 
-  // IoT Simulation Methods
+  const dismissToastAlert = (id: string) => {
+    setActiveToastAlerts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const setCapacityThresholds = (warningPct: number, criticalPct: number) => {
+    const safeWarn = Math.max(50, Math.min(90, warningPct));
+    const safeCrit = Math.max(safeWarn + 5, Math.min(100, criticalPct));
+    setCapacityWarningThresholdPct(safeWarn);
+    setCapacityCriticalThresholdPct(safeCrit);
+  };
+
+  const activeDeviceObj = devices.find((d) => d.id === activeDeviceId) || devices[0];
+  const currentCapacityPct =
+    activeDeviceObj && activeDeviceObj.maxCapacityKg > 0
+      ? Math.round((simulatedWeightKg / activeDeviceObj.maxCapacityKg) * 100)
+      : 0;
+
+  // IoT Simulation Methods with Real-Time Capacity Threshold Alerting
   const pushWeightSample = (targetKg: number, forceStable: boolean = false) => {
     setSimulatedWeightKg(targetKg);
     const newWindow = forceStable
@@ -300,18 +468,68 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsScaleStable(stable);
     setScaleStabilityScore(forceStable ? 100 : evalResult.stabilityScore);
 
+    const activeDev = devices.find((d) => d.id === activeDeviceId) || devices[0];
+    const maxCap = activeDev ? activeDev.maxCapacityKg : 150;
+    const loadPct = maxCap > 0 ? Math.round((targetKg / maxCap) * 100) : 0;
+
     if (targetKg <= 0.01) {
       setScaleState('IDLE');
+    } else if (loadPct >= 100) {
+      setScaleState('OVERLOAD');
     } else if (stable) {
       setScaleState('STABLE');
     } else {
       setScaleState('MEASURING');
+    }
+
+    // Real-time Capacity Threshold Detection
+    const prevZone = lastDeviceAlertZone[activeDev.id] || 'normal';
+    let nextZone: 'normal' | 'warning' | 'critical' = 'normal';
+    if (loadPct >= capacityCriticalThresholdPct) {
+      nextZone = 'critical';
+    } else if (loadPct >= capacityWarningThresholdPct) {
+      nextZone = 'warning';
+    }
+
+    if (nextZone !== prevZone) {
+      setLastDeviceAlertZone((prev) => ({ ...prev, [activeDev.id]: nextZone }));
+
+      if (nextZone === 'critical') {
+        const critNotif: NotificationItem = {
+          id: `notif-cap-crit-${Date.now()}`,
+          title: `Kapasitas Kritis (${loadPct}%): ${activeDev.deviceCode}`,
+          message: `Beban pada ${activeDev.name.split(' (')[0]} mencapai ${targetKg.toFixed(1)} kg dari batas maksimal ${maxCap} kg (ambang kritis ≥${capacityCriticalThresholdPct}%). Segera proses atau kurangi beban.`,
+          type: 'alert',
+          timestamp: new Date().toISOString(),
+          read: false,
+          deviceCode: activeDev.deviceCode,
+          capacityPct: loadPct,
+          actionTab: 'timbangan',
+        };
+        setNotifications((prev) => [critNotif, ...prev]);
+        setActiveToastAlerts((prev) => [critNotif, ...prev.slice(0, 2)]);
+      } else if (nextZone === 'warning') {
+        const warnNotif: NotificationItem = {
+          id: `notif-cap-warn-${Date.now()}`,
+          title: `Peringatan Kapasitas (${loadPct}%): ${activeDev.deviceCode}`,
+          message: `Stasiun ${activeDev.deviceCode} mencapai ${targetKg.toFixed(1)} kg / ${maxCap} kg (melewati ambang peringatan ${capacityWarningThresholdPct}%).`,
+          type: 'warning',
+          timestamp: new Date().toISOString(),
+          read: false,
+          deviceCode: activeDev.deviceCode,
+          capacityPct: loadPct,
+          actionTab: 'timbangan',
+        };
+        setNotifications((prev) => [warnNotif, ...prev]);
+        setActiveToastAlerts((prev) => [warnNotif, ...prev.slice(0, 2)]);
+      }
     }
   };
 
   const tareScale = () => {
     pushWeightSample(0.0);
     setScaleState('IDLE');
+    setLastDeviceAlertZone((prev) => ({ ...prev, [activeDeviceId]: 'normal' }));
     setAuditLogs((prev) => [
       {
         id: `aud-${Date.now()}`,
@@ -1042,6 +1260,183 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setDevices(initialDevices);
     setAuditLogs(initialAuditLogs);
     setPriceHistory([]);
+
+    fetch('/api/reset', { method: 'POST' })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.success) {
+          setLastSyncedAt(new Date().toISOString());
+          appendClientApiLog({
+            method: 'POST',
+            endpoint: '/api/reset',
+            statusCode: 200,
+            latencyMs: 6,
+            source: 'SYSTEM',
+            summary: 'Reset database server ke kondisi awal standar unit',
+          });
+        }
+      })
+      .catch(() => {});
+  };
+
+  // SEND REAL IOT TELEMETRY WEBHOOK TO BACKEND (/api/iot/telemetry)
+  const sendIotTelemetryWebhook = async (payload?: {
+    deviceCode?: string;
+    weightKg?: number;
+    isStable?: boolean;
+  }): Promise<{ success: boolean; message: string; statusCode: number }> => {
+    const activeDev = devices.find((d) => d.id === activeDeviceId) || devices[0];
+    const targetWeight =
+      typeof payload?.weightKg === 'number'
+        ? payload.weightKg
+        : simulatedWeightKg > 0
+        ? simulatedWeightKg
+        : Number((8.5 + Math.random() * 14).toFixed(2));
+    const targetDeviceCode = payload?.deviceCode || activeDev.deviceCode;
+    const isStable = payload?.isStable ?? true;
+
+    const start = performance.now();
+    try {
+      const res = await fetch('/api/iot/telemetry', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Hafi-Signature': 'sha256:pilahin-esp32-hmac-v2',
+        },
+        body: JSON.stringify({
+          device_code: targetDeviceCode,
+          timestamp: new Date().toISOString(),
+          telemetry: {
+            weight_kg: targetWeight,
+            raw_adc: Math.round(targetWeight * 21540 + 820),
+            is_stable: isStable,
+            stability_score: isStable ? 99 : 72,
+            battery_pct: activeDev.batteryLevel || 94,
+            rssi_dbm: activeDev.signalStrengthDbm || -58,
+            ambient_temp_c: 29.4,
+          },
+        }),
+      });
+      const latency = Math.max(1, Math.round(performance.now() - start));
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        const httpStatus = res.status || 200;
+        pushWeightSample(targetWeight, isStable);
+        setApiStatus('online');
+        setApiLatencyMs(latency);
+        setLastSyncedAt(new Date().toISOString());
+        appendClientApiLog({
+          method: 'POST',
+          endpoint: '/api/iot/telemetry',
+          statusCode: httpStatus,
+          latencyMs: latency,
+          source: 'ESP32-NODE',
+          summary: `Ingesti telemetri ${targetDeviceCode}: ${targetWeight.toFixed(2)} kg (Stabil 99%)`,
+        });
+        return {
+          success: true,
+          message: data.message || `Telemetri ${targetDeviceCode} (${targetWeight} kg) berhasil dikirim.`,
+          statusCode: httpStatus,
+        };
+      }
+      return {
+        success: false,
+        message: data.error || 'Gagal mengirim telemetri IoT.',
+        statusCode: res.status || 400,
+      };
+    } catch {
+      setApiStatus('offline');
+      return {
+        success: false,
+        message: 'Tidak dapat terhubung ke endpoint /api/iot/telemetry.',
+        statusCode: 503,
+      };
+    }
+  };
+
+  // CALIBRATE DEVICE VIA BACKEND API (/api/iot/calibrate)
+  const calibrateDeviceViaApi = async (
+    deviceId: string,
+    referenceWeightKg: number,
+    customFactor?: number
+  ): Promise<{ success: boolean; message: string; newFactor?: number }> => {
+    const start = performance.now();
+    try {
+      const res = await fetch('/api/iot/calibrate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceId,
+          referenceWeightKg,
+          measuredWeightKg: referenceWeightKg,
+          customFactor,
+        }),
+      });
+      const latency = Math.max(1, Math.round(performance.now() - start));
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        const httpStatus = res.status || 200;
+        setDevices((prev) =>
+          prev.map((d) =>
+            d.id === deviceId
+              ? {
+                  ...d,
+                  calibrationFactor: data.calibration.newFactor,
+                  lastHeartbeat: new Date().toISOString(),
+                }
+              : d
+          )
+        );
+        if (data.auditEntry) {
+          setAuditLogs((prev) => [data.auditEntry, ...prev]);
+        }
+        setApiStatus('online');
+        setApiLatencyMs(latency);
+        setLastSyncedAt(new Date().toISOString());
+        appendClientApiLog({
+          method: 'POST',
+          endpoint: '/api/iot/calibrate',
+          statusCode: httpStatus,
+          latencyMs: latency,
+          source: 'ESP32-NODE',
+          summary: `Kalibrasi sensor ${data.device?.deviceCode || deviceId}: Faktor ${data.calibration.newFactor}`,
+        });
+        return {
+          success: true,
+          message: `Kalibrasi REST API berhasil: Faktor baru ${data.calibration.newFactor} (Deviasi ${data.calibration.deviationPct}%).`,
+          newFactor: data.calibration.newFactor,
+        };
+      }
+      return {
+        success: false,
+        message: data.error || 'Gagal mengkalibrasi perangkat via API.',
+      };
+    } catch {
+      return {
+        success: false,
+        message: 'Koneksi ke endpoint /api/iot/calibrate terputus.',
+      };
+    }
+  };
+
+  const recordQrMemberScan = (member: Member, source: string) => {
+    setScannedMemberId(member.id);
+    const nowIso = new Date().toISOString();
+    setAuditLogs((prev) => [
+      {
+        id: `aud-qr-${Date.now()}`,
+        timestamp: nowIso,
+        actor: currentUser.name,
+        role: currentUser.role,
+        action: 'SCAN_MEMBER_QR',
+        entityType: 'Member',
+        entityId: member.memberCode,
+        description: `Identifikasi Kartu QR Nasabah ${member.fullName} (${member.memberCode}) berhasil via ${source} — Dalam Naungan Hafi Digital.`,
+      },
+      ...prev,
+    ]);
   };
 
   return (
@@ -1061,6 +1456,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         notifications,
         markNotificationAsRead,
         clearNotifications,
+        activeToastAlerts,
+        dismissToastAlert,
+        capacityWarningThresholdPct,
+        capacityCriticalThresholdPct,
+        setCapacityThresholds,
+        currentCapacityPct,
         wasteCategories,
         priceHistory,
         members,
@@ -1095,6 +1496,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         tareScale,
         toggleDeviceStatus,
         pushWeightSample,
+        scannedMemberId,
+        setScannedMemberId,
+        recordQrMemberScan,
+        apiStatus,
+        apiLatencyMs,
+        lastSyncedAt,
+        apiRequestLogs,
+        refreshFromBackend,
+        sendIotTelemetryWebhook,
+        calibrateDeviceViaApi,
       }}
     >
       {children}

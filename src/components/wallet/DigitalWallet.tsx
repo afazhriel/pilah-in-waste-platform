@@ -89,27 +89,24 @@ export const DigitalWallet: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl bg-white p-5 border border-slate-200/80 shadow-xs">
+    <div className="space-y-4 pb-10">
+      {/* Compact Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <span className="rounded-md bg-teal-50 text-[#009CAC] px-2.5 py-0.5 text-xs font-bold border border-teal-200">
-            FINANSIAL TABUNGAN DIGITAL
-          </span>
-          <h1 className="mt-1 text-xl font-black text-slate-900 tracking-tight lg:text-2xl">
+          <h1 className="text-lg font-extrabold text-slate-900 tracking-tight">
             Tabungan & Penarikan Saldo
           </h1>
           <p className="text-xs text-slate-500">
-            Sistem buku besar (ledger) tabungan nasabah yang diaudit, anti duplikasi kredit, dan mutasi transparan.
+            Buku besar tabungan nasabah & persetujuan pencairan dana
           </p>
         </div>
 
         <button
           onClick={() => window.print()}
-          className="flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition"
+          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition"
         >
-          <Printer className="h-4 w-4" />
-          <span>Cetak Laporan Kewajiban Saldo</span>
+          <Printer className="h-3.5 w-3.5" />
+          <span>Cetak Laporan</span>
         </button>
       </div>
 

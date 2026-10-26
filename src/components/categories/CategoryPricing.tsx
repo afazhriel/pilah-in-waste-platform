@@ -53,38 +53,34 @@ export const CategoryPricing: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl bg-white p-5 border border-slate-200/80 shadow-xs">
+    <div className="space-y-4 pb-8">
+      {/* Compact Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
         <div>
-          <span className="rounded-md bg-teal-50 text-[#009CAC] px-2.5 py-0.5 text-xs font-bold border border-teal-200">
-            KATALOG & PRICING ENGINE
-          </span>
-          <h1 className="mt-1 text-xl font-black text-slate-900 tracking-tight lg:text-2xl">
-            Jenis & Tarif Harga Sampah
+          <h1 className="text-lg font-extrabold text-slate-900 tracking-tight">
+            Jenis & Harga Sampah
           </h1>
           <p className="text-xs text-slate-500">
-            Penetapan harga beli dari nasabah dan harga jual ke pabrik pengepul dengan margin kotor terproyeksi.
+            Atur harga beli nasabah, harga jual pengepul, dan estimasi margin.
           </p>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="flex rounded-xl bg-slate-100 p-1">
+        <div className="flex rounded-lg bg-slate-100 p-1 self-start sm:self-auto">
           <button
             onClick={() => setActiveTabSub('prices')}
-            className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+            className={`rounded-md px-3 py-1.5 text-xs font-bold transition whitespace-nowrap ${
               activeTabSub === 'prices' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
             }`}
           >
-            Daftar Tarif Aktif
+            Tarif Aktif
           </button>
           <button
             onClick={() => setActiveTabSub('history')}
-            className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+            className={`rounded-md px-3 py-1.5 text-xs font-bold transition whitespace-nowrap ${
               activeTabSub === 'history' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
             }`}
           >
-            Log Riwayat Perubahan ({priceHistory.length})
+            Riwayat Harga ({priceHistory.length})
           </button>
         </div>
       </div>

@@ -1,211 +1,132 @@
 import React from 'react';
+import { motion } from 'framer-motion';
+import { ShieldCheck } from 'lucide-react';
+import { useApp } from '../../context/AppContext';
+import { MODULE_SHELF_ITEMS } from './Navbar';
+import { IsometricBrandEmblem3D } from '../visuals/Isometric3DScene';
 import {
-  LayoutDashboard,
-  ArrowDownToLine,
-  Cpu,
-  Users,
-  Tags,
-  Wallet,
-  Boxes,
-  Truck,
-  TrendingUp,
-  BarChart3,
-  Sliders,
-  Settings,
-  Recycle,
-  Sparkles,
-  ChevronRight,
-  ShieldCheck,
-  Radio,
-} from 'lucide-react';
-import { useApp, NavTab } from '../../context/AppContext';
+  Sidebar as ShadcnSidebar,
+  SidebarBody,
+  SidebarLink,
+} from '@/components/ui/sidebar';
 
 interface SidebarProps {
   isMobileOpen: boolean;
-  setIsMobileOpen: (open: boolean) => void;
+  setIsMobileOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setIsMobileOpen }) => {
-  const { activeTab, setActiveTab, currentBranch, withdrawalRequests, isScaleStable, simulatedWeightKg } = useApp();
+export const Logo = () => {
+  return (
+    <div className="font-normal flex items-center gap-2.5 text-sm text-slate-900 py-1 px-1.5 relative z-20">
+      <IsometricBrandEmblem3D size="md" isActive />
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="flex flex-col leading-tight whitespace-pre"
+      >
+        <div className="flex items-baseline gap-1">
+          <span className="font-bold text-slate-950 text-sm tracking-tight">
+            Pilah.in
+          </span>
+          <span className="text-[9px] font-semibold uppercase tracking-widest text-[#009CAC]">
+            IoT
+          </span>
+        </div>
+        <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
+          Dalam Naungan Hafi Digital
+        </span>
+      </motion.div>
+    </div>
+  );
+};
 
-  const pendingWithdrawalsCount = withdrawalRequests.filter((w) => w.status === 'pending').length;
+export const LogoIcon = () => {
+  return (
+    <div className="font-normal flex items-center justify-center text-sm text-slate-900 py-1 relative z-20">
+      <IsometricBrandEmblem3D size="md" />
+    </div>
+  );
+};
 
-  const navGroups: Array<{
-    groupTitle: string;
-    items: Array<{
-      id: NavTab;
-      label: string;
-      icon: React.ComponentType<{ className?: string }>;
-      badge?: string | number;
-      badgeVariant?: 'teal' | 'warning' | 'mint';
-    }>;
-  }> = [
-    {
-      groupTitle: 'OPERASIONAL UTAMA',
-      items: [
-        { id: 'overview', label: 'Ringkasan Eksekutif', icon: LayoutDashboard },
-        { id: 'setoran', label: 'Setoran Sampah', icon: ArrowDownToLine },
-        {
-          id: 'timbangan',
-          label: 'Timbangan IoT',
-          icon: Cpu,
-          badge: simulatedWeightKg > 0 ? `${simulatedWeightKg.toFixed(1)} kg` : 'Live',
-          badgeVariant: isScaleStable ? 'mint' : 'warning',
-        },
-      ],
-    },
-    {
-      groupTitle: 'NASABAH & FINANSIAL',
-      items: [
-        { id: 'nasabah', label: 'Data Nasabah', icon: Users },
-        { id: 'harga', label: 'Jenis & Harga Sampah', icon: Tags },
-        {
-          id: 'tabungan',
-          label: 'Tabungan Digital',
-          icon: Wallet,
-          badge: pendingWithdrawalsCount > 0 ? pendingWithdrawalsCount : undefined,
-          badgeVariant: 'warning',
-        },
-      ],
-    },
-    {
-      groupTitle: 'GUDANG & PENJUALAN',
-      items: [
-        { id: 'inventaris', label: 'Inventaris & Gudang', icon: Boxes },
-        { id: 'penjualan', label: 'Penjualan Pengepul', icon: Truck },
-        { id: 'keuangan', label: 'Laporan Keuangan', icon: TrendingUp },
-      ],
-    },
-    {
-      groupTitle: 'SISTEM & ANALITIK',
-      items: [
-        { id: 'laporan', label: 'Analitik & Ekspor', icon: BarChart3 },
-        { id: 'perangkat', label: 'Perangkat & Kalibrasi', icon: Sliders },
-        { id: 'pengaturan', label: 'Pengaturan & Audit', icon: Settings },
-      ],
-    },
-  ];
+export const Sidebar: React.FC<SidebarProps> = ({
+  isMobileOpen,
+  setIsMobileOpen,
+}) => {
+  const {
+    activeTab,
+    setActiveTab,
+    withdrawalRequests,
+    deposits,
+    currentBranch,
+  } = useApp();
 
-  const handleSelectTab = (tab: NavTab) => {
-    setActiveTab(tab);
-    setIsMobileOpen(false);
-  };
+  const pendingWithdrawalsCount = withdrawalRequests.filter(
+    (w) => w.status === 'pending'
+  ).length;
+  const todayDepositsCount = deposits.filter((d) =>
+    d.timestamp.startsWith(new Date().toISOString().slice(0, 10))
+  ).length;
+
+  const links = MODULE_SHELF_ITEMS.map((item) => {
+    const Icon = item.icon;
+    const isActive = activeTab === item.id;
+    const badge =
+      item.id === 'setoran'
+        ? todayDepositsCount
+        : item.id === 'tabungan'
+        ? pendingWithdrawalsCount
+        : undefined;
+
+    return {
+      label: item.label,
+      href: `#${item.id}`,
+      active: isActive,
+      badge,
+      onClick: () => {
+        setActiveTab(item.id);
+        if (window.innerWidth < 768) {
+          setIsMobileOpen(false);
+        }
+      },
+      icon: (
+        <Icon
+          className={`h-4 w-4 flex-shrink-0 transition-colors ${
+            isActive
+              ? 'text-teal-300'
+              : 'text-slate-600 group-hover/sidebar:text-[#009CAC]'
+          }`}
+        />
+      ),
+    };
+  });
 
   return (
-    <>
-      {/* Mobile backdrop */}
-      {isMobileOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-xs lg:hidden"
-          onClick={() => setIsMobileOpen(false)}
-        />
-      )}
-
-      <aside
-        className={`fixed top-0 bottom-0 left-0 z-50 flex w-72 flex-col bg-[#0C2D57] text-white transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${
-          isMobileOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
-      >
-        {/* Brand Header */}
-        <div className="flex h-20 items-center justify-between border-b border-white/10 px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-tr from-[#009CAC] to-[#22c55e] shadow-lg shadow-teal-500/20">
-              <Recycle className="h-6 w-6 text-white" />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xl font-extrabold tracking-tight text-white">Pilah</span>
-                <span className="text-xl font-extrabold tracking-tight text-[#009CAC]">.in</span>
-                <span className="rounded bg-teal-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-[#DDF7EE] tracking-wide">
-                  PRO
-                </span>
-              </div>
-              <p className="text-[11px] font-medium text-slate-300 line-clamp-1">
-                Smart Waste Banking & IoT
-              </p>
-            </div>
+    <ShadcnSidebar open={isMobileOpen} setOpen={setIsMobileOpen}>
+      <SidebarBody className="justify-between gap-6 border-r border-slate-200/80 bg-[#F7F6F2] md:sticky md:top-0 md:h-screen no-print">
+        <div className="flex flex-col flex-1 overflow-y-auto overflow-x-hidden">
+          {isMobileOpen ? <Logo /> : <LogoIcon />}
+          <div className="mt-6 flex flex-col gap-1">
+            {links.map((link, idx) => (
+              <SidebarLink key={idx} link={link} />
+            ))}
           </div>
         </div>
 
-        {/* Branch Context Card */}
-        <div className="mx-4 my-3 rounded-xl bg-white/5 p-3 border border-white/10">
-          <div className="flex items-center justify-between text-xs text-slate-300 mb-1">
-            <span className="flex items-center gap-1 font-semibold uppercase tracking-wider text-[10px] text-teal-300">
-              <Radio className="h-3 w-3 animate-pulse text-emerald-400" /> UNIT AKTIF
-            </span>
-            <span className="text-[11px] font-mono text-slate-300">{currentBranch.code}</span>
-          </div>
-          <p className="text-xs font-semibold text-white truncate">{currentBranch.name}</p>
-          <p className="text-[11px] text-slate-400 truncate">{currentBranch.address}</p>
+        <div className="border-t border-slate-200/80 pt-3">
+          <SidebarLink
+            link={{
+              label: `${currentBranch.manager || 'Operator Utama'} · Hafi Digital`,
+              href: '#pengaturan',
+              onClick: () => setActiveTab('pengaturan'),
+              icon: (
+                <div className="h-7 w-7 flex-shrink-0 rounded-full bg-[#0C2D57] text-teal-300 flex items-center justify-center text-[10px] font-bold border border-teal-400/30">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                </div>
+              ),
+            }}
+          />
         </div>
-
-        {/* Navigation list */}
-        <nav className="flex-1 space-y-6 overflow-y-auto px-4 py-2">
-          {navGroups.map((group) => (
-            <div key={group.groupTitle} className="space-y-1">
-              <p className="px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
-                {group.groupTitle}
-              </p>
-              {group.items.map((item) => {
-                const isActive = activeTab === item.id;
-                const IconComponent = item.icon;
-
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => handleSelectTab(item.id)}
-                    className={`group flex w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-xs font-medium transition-all ${
-                      isActive
-                        ? 'bg-[#009CAC] text-white shadow-md shadow-teal-900/30 font-semibold'
-                        : 'text-slate-200 hover:bg-white/10 hover:text-white'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <IconComponent
-                        className={`h-4 w-4 transition-transform group-hover:scale-110 ${
-                          isActive ? 'text-white' : 'text-slate-400 group-hover:text-teal-300'
-                        }`}
-                      />
-                      <span>{item.label}</span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      {item.badge !== undefined && (
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                            item.badgeVariant === 'warning'
-                              ? 'bg-amber-400/90 text-amber-950'
-                              : item.badgeVariant === 'mint'
-                              ? 'bg-[#DDF7EE] text-[#0C2D57]'
-                              : 'bg-teal-400/20 text-teal-200'
-                          }`}
-                        >
-                          {item.badge}
-                        </span>
-                      )}
-                      {isActive && <ChevronRight className="h-3.5 w-3.5 text-white/70" />}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </nav>
-
-        {/* Footer info */}
-        <div className="border-t border-white/10 p-4">
-          <div className="flex items-center justify-between rounded-xl bg-slate-900/40 p-3 text-xs">
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
-              <div>
-                <p className="font-semibold text-slate-200 text-[11px]">Sistem IoT Terkoneksi</p>
-                <p className="text-[10px] text-slate-400 font-mono">ESP32 Ingestion 100%</p>
-              </div>
-            </div>
-            <ShieldCheck className="h-4 w-4 text-teal-400" />
-          </div>
-        </div>
-      </aside>
-    </>
+      </SidebarBody>
+    </ShadcnSidebar>
   );
 };

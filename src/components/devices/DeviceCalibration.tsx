@@ -23,21 +23,35 @@ export const DeviceCalibration: React.FC = () => {
     toggleDeviceStatus,
     tareScale,
     simulatedWeightKg,
-    currentUser,
+    calibrateDeviceViaApi,
+    sendIotTelemetryWebhook,
   } = useApp();
 
   const [activeDevice, setActiveDevice] = useState(
     devices.find((d) => d.id === activeDeviceId) || devices[0]
   );
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [isSendingWebhook, setIsSendingWebhook] = useState(false);
 
   // Calibration tool state
   const [refWeightKg, setRefWeightKg] = useState<number>(20.0);
   const [calibratedFactor, setCalibratedFactor] = useState<number>(1.0025);
 
-  const handleCalibrate = (e: React.FormEvent) => {
+  const handleCalibrate = async (e: React.FormEvent) => {
     e.preventDefault();
-    setFeedback(`Kalibrasi perangkat ${activeDevice.deviceCode} berhasil diperbarui. Faktor kalibrasi baru: ${calibratedFactor}. Deviasi sensor: 0.00%`);
+    const res = await calibrateDeviceViaApi(activeDevice.id, refWeightKg, calibratedFactor);
+    setFeedback(res.message);
+  };
+
+  const handleTriggerLiveWebhook = async () => {
+    setIsSendingWebhook(true);
+    const res = await sendIotTelemetryWebhook({
+      deviceCode: activeDevice.deviceCode,
+      weightKg: simulatedWeightKg > 0 ? simulatedWeightKg : refWeightKg,
+      isStable: true,
+    });
+    setFeedback(`HTTP ${res.statusCode}: ${res.message}`);
+    setIsSendingWebhook(false);
   };
 
   // Simulated IoT Telemetry Ingestion Payload preview
@@ -67,26 +81,23 @@ export const DeviceCalibration: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-12">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl bg-white p-5 border border-slate-200/80 shadow-xs">
+      {/* Compact Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <span className="rounded-md bg-teal-50 text-[#009CAC] px-2.5 py-0.5 text-xs font-bold border border-teal-200">
-            HARDWARE & TELEMETRI SENSOR
-          </span>
-          <h1 className="mt-1 text-xl font-black text-slate-900 tracking-tight lg:text-2xl">
-            Perangkat IoT & Kalibrasi Load Cell
+          <h1 className="text-lg font-extrabold text-slate-900 tracking-tight">
+            Perangkat IoT & Kalibrasi
           </h1>
           <p className="text-xs text-slate-500">
-            Monitoring konektivitas timbangan digital ESP32, kalibrasi faktor tegangan ADC, dan inspeksi protokol data.
+            Status node timbangan ESP32, faktor kalibrasi ADC, dan diagnostik sensor
           </p>
         </div>
 
         <button
           onClick={tareScale}
-          className="flex items-center gap-2 rounded-xl bg-[#0C2D57] px-4 py-2 text-xs font-bold text-white hover:bg-[#071f3e] transition"
+          className="flex items-center gap-1.5 rounded-lg bg-[#0C2D57] px-3.5 py-1.5 text-xs font-bold text-white hover:bg-[#071f3e] transition"
         >
-          <RotateCcw className="h-4 w-4 text-teal-400" />
-          <span>Nolkan Semua Timbangan (Tare)</span>
+          <RotateCcw className="h-3.5 w-3.5 text-teal-400" />
+          <span>Tare Semua Timbangan</span>
         </button>
       </div>
 
@@ -96,8 +107,11 @@ export const DeviceCalibration: React.FC = () => {
             <CheckCircle2 className="h-4 w-4 text-emerald-600" />
             <span>{feedback}</span>
           </div>
-          <button onClick={() => setFeedback(null)} className="text-slate-400 hover:text-slate-600">
-            ✕
+          <button
+            onClick={() => setFeedback(null)}
+            className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-950 px-2 py-0.5 rounded cursor-pointer"
+          >
+            Tutup
           </button>
         </div>
       )}
@@ -268,9 +282,19 @@ export const DeviceCalibration: React.FC = () => {
             {JSON.stringify(telemetryJson, null, 2)}
           </pre>
 
-          <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono pt-1">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-400 font-mono pt-1">
             <span>Perlindungan Replay: Nonce Unik + Timestamp Token</span>
-            <span className="text-emerald-400 font-bold">● Sensor Sinkron</span>
+            <button
+              type="button"
+              disabled={isSendingWebhook}
+              onClick={handleTriggerLiveWebhook}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/30 px-3 py-1.5 text-xs font-bold text-emerald-300 transition cursor-pointer"
+            >
+              <Zap className="h-3.5 w-3.5" />
+              <span>
+                {isSendingWebhook ? 'Mengirim ke /api/iot/telemetry...' : 'Uji Kirim Webhook Telemetri'}
+              </span>
+            </button>
           </div>
         </div>
       </div>

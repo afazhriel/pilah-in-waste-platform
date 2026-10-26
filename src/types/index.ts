@@ -203,7 +203,7 @@ export interface OperationalExpense {
 }
 
 export type DeviceStatus = 'online' | 'offline' | 'calibrating' | 'error';
-export type ScaleState = 'IDLE' | 'MEASURING' | 'STABLE' | 'CONFIRMING' | 'COMPLETED';
+export type ScaleState = 'IDLE' | 'MEASURING' | 'STABLE' | 'CONFIRMING' | 'COMPLETED' | 'OVERLOAD';
 
 export interface WeighingDevice {
   id: string;

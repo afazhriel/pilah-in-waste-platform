@@ -115,18 +115,15 @@ export const CollectorSales: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl bg-white p-5 border border-slate-200/80 shadow-xs">
+    <div className="space-y-4 pb-10">
+      {/* Compact Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <span className="rounded-md bg-teal-50 text-[#009CAC] px-2.5 py-0.5 text-xs font-bold border border-teal-200">
-            OFF-TAKER & MONETISASI
-          </span>
-          <h1 className="mt-1 text-xl font-black text-slate-900 tracking-tight lg:text-2xl">
-            Penjualan Sampah ke Pengepul
+          <h1 className="text-lg font-extrabold text-slate-900 tracking-tight">
+            Penjualan Pengepul
           </h1>
           <p className="text-xs text-slate-500">
-            Realisasi pendapatan dan margin kotor dari penjualan agregasi material sampah gudang ke mitra industri daur ulang.
+            Pengiriman stok gudang ke mitra daur ulang & realisasi margin
           </p>
         </div>
       </div>
