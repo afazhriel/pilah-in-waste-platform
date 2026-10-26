@@ -42,6 +42,7 @@ import {
   computeCalibrationAdjustment,
   NormalizedTelemetryPayload,
 } from './src/utils/apiPayload';
+import { buildWasteTrendsReport } from './src/utils/wasteTrends';
 
 export interface ApiRequestLogEntry {
   id: string;
@@ -232,20 +233,52 @@ async function startServer() {
     });
   });
 
-  // 2. GET /api/bootstrap - Hydrate complete application state
-  app.get('/api/bootstrap', (_req, res) => {
+  // 2. GET /api/bootstrap - Hydrate complete application state + 30-day waste trends
+  app.get('/api/bootstrap', (req, res) => {
+    const branchId = typeof req.query.branchId === 'string' ? req.query.branchId : 'b-01';
+    const wasteTrends = buildWasteTrendsReport({
+      deposits: db.deposits,
+      collectorSales: db.collectorSales,
+      wasteCategories: db.wasteCategories,
+      days: 30,
+      branchId,
+    });
     res.json({
       success: true,
       patronage: 'Dalam Naungan Hafi Digital',
       updatedAt: db.updatedAt,
       data: db,
+      wasteTrends,
       recentLogs: apiRequestLogs.slice(0, 20),
+    });
+  });
+
+  // 2b. GET /api/analytics/trends - 30-day daily waste volume & financial performance trends
+  app.get('/api/analytics/trends', (req, res) => {
+    const daysParam = Number(req.query.days) || 30;
+    const branchId = typeof req.query.branchId === 'string' ? req.query.branchId : 'b-01';
+    const includeBaseline = req.query.includeBaseline !== 'false';
+
+    const report = buildWasteTrendsReport({
+      deposits: db.deposits,
+      collectorSales: db.collectorSales,
+      wasteCategories: db.wasteCategories,
+      days: daysParam,
+      branchId,
+      includeBaseline,
+    });
+
+    res.json({
+      success: true,
+      patronage: 'Dalam Naungan Hafi Digital',
+      updatedAt: db.updatedAt,
+      report,
     });
   });
 
   // 3. PUT /api/sync - Atomic state synchronization from client mutations
   app.put('/api/sync', (req, res) => {
-    const body = req.body as Partial<PersistentDatabaseSchema>;
+    const body = req.body as Partial<PersistentDatabaseSchema> & { branchId?: string };
     if (!body || typeof body !== 'object') {
       res.status(400).json({ success: false, error: 'Payload sinkronisasi tidak valid.' });
       return;
@@ -265,9 +298,17 @@ async function startServer() {
     if (Array.isArray(body.auditLogs)) db.auditLogs = body.auditLogs;
 
     saveDatabase(db);
+    const wasteTrends = buildWasteTrendsReport({
+      deposits: db.deposits,
+      collectorSales: db.collectorSales,
+      wasteCategories: db.wasteCategories,
+      days: 30,
+      branchId: body.branchId || 'b-01',
+    });
     res.json({
       success: true,
       updatedAt: db.updatedAt,
+      wasteTrends,
     });
   });
 

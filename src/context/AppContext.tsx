@@ -33,6 +33,7 @@ import {
   initialAuditLogs,
 } from '../data/seedData';
 import { calculateDepositSubtotal, evaluateWeightStability, isDuplicateTransaction } from '../utils/calculations';
+import { buildWasteTrendsReport, WasteTrendsReport } from '../utils/wasteTrends';
 
 export type NavTab =
   | 'overview'
@@ -161,11 +162,13 @@ interface AppContextType {
   setScannedMemberId: (id: string | null) => void;
   recordQrMemberScan: (member: Member, source: string) => void;
 
-  // Backend & REST API Integration
+  // Backend & REST API Integration + 30-Day Waste Trends
   apiStatus: 'connecting' | 'online' | 'offline';
   apiLatencyMs: number;
   lastSyncedAt: string | null;
   apiRequestLogs: ApiRequestLog[];
+  wasteTrendsReport: WasteTrendsReport;
+  fetchWasteTrendsFromApi: (days?: number, branchId?: string) => Promise<WasteTrendsReport | null>;
   refreshFromBackend: () => Promise<void>;
   sendIotTelemetryWebhook: (payload?: {
     deviceCode?: string;
@@ -303,6 +306,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [apiRequestLogs, setApiRequestLogs] = useState<ApiRequestLog[]>([]);
   const [isHydratedFromApi, setIsHydratedFromApi] = useState<boolean>(false);
 
+  // Live 30-day waste trends report synchronized with domain state & backend
+  const wasteTrendsReport = React.useMemo<WasteTrendsReport>(() => {
+    return buildWasteTrendsReport({
+      deposits,
+      collectorSales,
+      wasteCategories,
+      days: 30,
+      branchId: currentBranchId,
+    });
+  }, [deposits, collectorSales, wasteCategories, currentBranchId]);
+
   const appendClientApiLog = (entry: Omit<ApiRequestLog, 'id' | 'timestamp'>) => {
     setApiRequestLogs((prev) => [
       {
@@ -314,10 +328,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     ]);
   };
 
+  const fetchWasteTrendsFromApi = async (
+    days: number = 30,
+    branchId: string = currentBranchId
+  ): Promise<WasteTrendsReport | null> => {
+    const start = performance.now();
+    try {
+      const res = await fetch(
+        `/api/analytics/trends?days=${encodeURIComponent(days)}&branchId=${encodeURIComponent(branchId)}`,
+        { headers: { Accept: 'application/json' } }
+      );
+      const latency = Math.max(1, Math.round(performance.now() - start));
+      if (!res.ok) return null;
+      const json = await res.json();
+      if (json && json.success && json.report) {
+        setApiStatus('online');
+        setApiLatencyMs(latency);
+        setLastSyncedAt(json.updatedAt || new Date().toISOString());
+        appendClientApiLog({
+          method: 'GET',
+          endpoint: `/api/analytics/trends?days=${days}&branchId=${branchId}`,
+          statusCode: res.status || 200,
+          latencyMs: latency,
+          source: 'WEB-CLIENT',
+          summary: `Sinkronisasi tren sampah ${days} hari (${json.report.summary.totalWeightKg} kg)`,
+        });
+        return json.report as WasteTrendsReport;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
   const refreshFromBackend = async () => {
     const start = performance.now();
     try {
-      const res = await fetch('/api/bootstrap', {
+      const res = await fetch(`/api/bootstrap?branchId=${encodeURIComponent(currentBranchId)}`, {
         headers: { Accept: 'application/json' },
       });
       const latency = Math.max(1, Math.round(performance.now() - start));
@@ -385,6 +432,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            branchId: currentBranchId,
             wasteCategories,
             priceHistory,
             members,
@@ -414,6 +462,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => clearTimeout(timer);
   }, [
     isHydratedFromApi,
+    currentBranchId,
     wasteCategories,
     members,
     deposits,
@@ -1503,6 +1552,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         apiLatencyMs,
         lastSyncedAt,
         apiRequestLogs,
+        wasteTrendsReport,
+        fetchWasteTrendsFromApi,
         refreshFromBackend,
         sendIotTelemetryWebhook,
         calibrateDeviceViaApi,

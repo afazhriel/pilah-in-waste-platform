@@ -39,7 +39,11 @@ export const SettingsModule: React.FC = () => {
   const [curlCopySuccess, setCurlCopySuccess] = useState(false);
   const [isTestingEndpoint, setIsTestingEndpoint] = useState(false);
   const [selectedEndpoint, setSelectedEndpoint] = useState<
-    '/api/health' | '/api/iot/telemetry' | '/api/deposits' | '/api/bootstrap'
+    | '/api/health'
+    | '/api/iot/telemetry'
+    | '/api/deposits'
+    | '/api/analytics/trends'
+    | '/api/bootstrap'
   >('/api/iot/telemetry');
   const [testWeightKg, setTestWeightKg] = useState<number>(14.65);
   const [apiResponsePreview, setApiResponsePreview] = useState<string>(() =>
@@ -361,6 +365,11 @@ CREATE TABLE wallet_ledger (
                       path: '/api/deposits' as const,
                       method: 'POST',
                       desc: 'Catat transaksi setoran sampah nasabah secara atomik',
+                    },
+                    {
+                      path: '/api/analytics/trends' as const,
+                      method: 'GET',
+                      desc: 'Tren koleksi sampah harian (kg) & performa finansial 30 hari terakhir',
                     },
                     {
                       path: '/api/health' as const,

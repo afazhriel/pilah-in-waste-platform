@@ -10,6 +10,10 @@ import {
   BarChart3,
   Activity,
   RotateCcw,
+  RefreshCw,
+  TrendingUp,
+  Wallet,
+  Layers,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -31,6 +35,10 @@ import { useApp } from '../../context/AppContext';
 import { formatIDR, formatWeight, formatDateTimeID, formatTimeOnlyID } from '../../utils/formatters';
 import { DepositTransaction } from '../../types';
 import {
+  DailyWasteTrendPoint,
+  buildWasteTrendsReport,
+} from '../../utils/wasteTrends';
+import {
   HeroEcoVault3D,
   InteractiveScale3D,
   IsometricEcosystemStage3D,
@@ -48,6 +56,90 @@ interface WeeklyProductivityPoint {
   transaksiCount: number;
   isCurrentWeek?: boolean;
 }
+
+const CustomDailyWasteTrendsTooltip = ({ active, payload }: any) => {
+  if (!active || !payload || !payload.length) return null;
+  const data: DailyWasteTrendPoint = payload[0]?.payload;
+  if (!data) return null;
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white/95 backdrop-blur-xs p-3.5 shadow-xl text-xs min-w-[245px]">
+      <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
+        <div>
+          <p className="font-semibold text-slate-900">{data.fullDateLabel}</p>
+          <p className="text-[11px] text-slate-400 tabular-nums">
+            {data.transactionCount} setoran · {data.iotVerifiedCount} terverifikasi IoT
+          </p>
+        </div>
+        <span className="text-[11px] font-semibold text-[#009CAC] tabular-nums">
+          Margin {data.marginPct}%
+        </span>
+      </div>
+
+      <div className="space-y-1.5 text-[11px] tabular-nums">
+        <div className="flex items-center justify-between">
+          <span className="text-slate-500">Total Volume Harian:</span>
+          <span className="font-semibold text-slate-900">{data.totalWeightKg.toFixed(1)} kg</span>
+        </div>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1 py-1 px-2 rounded-lg bg-slate-50 text-[10px]">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500 flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-xs bg-[#009CAC]" />
+              Plastik
+            </span>
+            <span className="font-medium text-slate-700">{data.plastikKg.toFixed(1)}kg</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500 flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-xs bg-[#159B70]" />
+              Kertas
+            </span>
+            <span className="font-medium text-slate-700">{data.kertasKg.toFixed(1)}kg</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500 flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-xs bg-[#0C2D57]" />
+              Logam/Kaca
+            </span>
+            <span className="font-medium text-slate-700">{data.logamKacaKg.toFixed(1)}kg</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500 flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-xs bg-[#D97706]" />
+              Jelantah
+            </span>
+            <span className="font-medium text-slate-700">{data.lainnyaKg.toFixed(1)}kg</span>
+          </div>
+        </div>
+
+        <div className="border-t border-slate-100 pt-1.5 mt-1 space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500">Estimasi Nilai Jual:</span>
+            <span className="font-semibold text-slate-900">
+              {formatIDR(data.estimatedRevenueRp)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500">HPP Beli Nasabah:</span>
+            <span className="font-medium text-slate-600">{formatIDR(data.depositCostRp)}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500">Margin Kotor Unit:</span>
+            <span className="font-semibold text-emerald-700">
+              +{formatIDR(data.grossMarginRp)}
+            </span>
+          </div>
+          {data.realizedSaleRevenueRp > 0 && (
+            <div className="flex items-center justify-between pt-0.5 text-[#009CAC] font-medium">
+              <span>Penjualan Pengepul:</span>
+              <span>{formatIDR(data.realizedSaleRevenueRp)}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const CustomWeeklyTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload || !payload.length) return null;
@@ -132,11 +224,45 @@ export const OverviewDashboard: React.FC = () => {
     capacityWarningThresholdPct,
     capacityCriticalThresholdPct,
     currentCapacityPct,
+    currentBranchId,
+    currentBranch,
+    apiStatus,
+    apiLatencyMs,
+    lastSyncedAt,
+    wasteTrendsReport,
+    fetchWasteTrendsFromApi,
   } = useApp();
 
   const [selectedReceipt, setSelectedReceipt] = useState<DepositTransaction | null>(null);
   const [chartTimeframe, setChartTimeframe] = useState<'weekly' | 'daily'>('weekly');
   const [weeklyChartMode, setWeeklyChartMode] = useState<'stacked' | 'area'>('stacked');
+
+  // 30-Day Waste Trends visualization controls
+  const [trendWindowDays, setTrendWindowDays] = useState<30 | 14 | 7>(30);
+  const [trendViewMode, setTrendViewMode] = useState<'combined' | 'financial' | 'composition'>(
+    'combined'
+  );
+  const [isSyncingTrends, setIsSyncingTrends] = useState<boolean>(false);
+
+  const activeTrendReport = useMemo(() => {
+    if (trendWindowDays === 30) return wasteTrendsReport;
+    return buildWasteTrendsReport({
+      deposits,
+      collectorSales,
+      wasteCategories,
+      days: trendWindowDays,
+      branchId: currentBranchId,
+    });
+  }, [wasteTrendsReport, trendWindowDays, deposits, collectorSales, wasteCategories, currentBranchId]);
+
+  const handleManualSyncTrends = async () => {
+    setIsSyncingTrends(true);
+    try {
+      await fetchWasteTrendsFromApi(trendWindowDays, currentBranchId);
+    } finally {
+      setIsSyncingTrends(false);
+    }
+  };
 
   const totalWeightKgAllTime = deposits.reduce((acc, d) => acc + d.totalWeightKg, 0);
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -892,6 +1018,495 @@ export const OverviewDashboard: React.FC = () => {
                   )}
                 </ResponsiveContainer>
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 3B: WASTE TRENDS — 30-DAY DAILY WASTE COLLECTION VOLUME & FINANCIAL PERFORMANCE */}
+      <section
+        aria-label="Tren Volume Sampah dan Performa Finansial 30 Hari Terakhir"
+        className="border-t border-slate-200/80 pt-10 space-y-6"
+      >
+        <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium tracking-[0.12em] uppercase text-slate-500">
+              <span className="h-2.5 w-2.5 bg-[#009CAC] inline-block" />
+              <span>WASTE TRENDS · ANALITIK 30 HARI TERAKHIR</span>
+              <span>·</span>
+              <span className="font-mono text-[10px] text-emerald-700 font-semibold">
+                GET /api/analytics/trends ({apiStatus === 'online' ? `${apiLatencyMs}ms` : apiStatus})
+              </span>
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-normal tracking-tight text-slate-950">
+              Tren koleksi sampah harian &{' '}
+              <span className="text-slate-400">performa finansial unit.</span>
+            </h2>
+            <p className="text-xs text-slate-500">
+              Sinkronisasi otomatis dengan buku besar setoran nasabah, harga katalog material, dan penjualan pengepul pada{' '}
+              <span className="font-medium text-slate-700">{currentBranch.name}</span>.
+            </p>
+          </div>
+
+          {/* Interactive Mode & Window Switchers + Backend Sync Trigger */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Mode Switcher */}
+            <div
+              role="group"
+              aria-label="Mode Grafik Tren Sampah"
+              className="flex items-center rounded-full border border-slate-200 bg-slate-50 p-0.5"
+            >
+              <button
+                type="button"
+                onClick={() => setTrendViewMode('combined')}
+                className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors cursor-pointer ${
+                  trendViewMode === 'combined'
+                    ? 'bg-slate-950 text-white'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <TrendingUp className="h-3 w-3" />
+                <span>Volume & Finansial</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTrendViewMode('financial')}
+                className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors cursor-pointer ${
+                  trendViewMode === 'financial'
+                    ? 'bg-slate-950 text-white'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Wallet className="h-3 w-3" />
+                <span>Performa Finansial (Rp)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTrendViewMode('composition')}
+                className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors cursor-pointer ${
+                  trendViewMode === 'composition'
+                    ? 'bg-slate-950 text-white'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Layers className="h-3 w-3" />
+                <span>Komposisi Harian (kg)</span>
+              </button>
+            </div>
+
+            {/* Window Range Switcher (30D / 14D / 7D) */}
+            <div
+              role="group"
+              aria-label="Rentang Hari Tren Sampah"
+              className="flex items-center rounded-full border border-slate-200 bg-slate-50 p-0.5"
+            >
+              {([30, 14, 7] as const).map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setTrendWindowDays(d)}
+                  className={`rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors cursor-pointer tabular-nums ${
+                    trendWindowDays === d
+                      ? 'bg-[#009CAC] text-white'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {d} Hari
+                </button>
+              ))}
+            </div>
+
+            {/* Backend Sync Button */}
+            <button
+              type="button"
+              onClick={handleManualSyncTrends}
+              disabled={isSyncingTrends}
+              className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white hover:bg-slate-50 px-3 py-1.5 text-[11px] font-medium text-slate-700 transition cursor-pointer disabled:opacity-50"
+              title="Sinkronkan tren dari endpoint /api/analytics/trends"
+            >
+              <RefreshCw className={`h-3 w-3 text-[#009CAC] ${isSyncingTrends ? 'animate-spin' : ''}`} />
+              <span>{isSyncingTrends ? 'Menyinkronkan...' : 'Sinkron API'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* 30-Day Summary KPI Strip (Tabular Nums) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="rounded-2xl border border-slate-200/80 bg-white p-4">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block">
+              VOLUME KOLEKSI ({activeTrendReport.days} HARI)
+            </span>
+            <div className="mt-1.5 flex items-baseline justify-between gap-2">
+              <span className="text-xl xl:text-2xl font-semibold text-slate-950 tabular-nums whitespace-nowrap">
+                {formatWeight(activeTrendReport.summary.totalWeightKg)}
+              </span>
+              <span
+                className={`text-xs font-semibold tabular-nums whitespace-nowrap ${
+                  activeTrendReport.summary.volumeGrowthPct >= 0
+                    ? 'text-emerald-600'
+                    : 'text-amber-600'
+                }`}
+              >
+                {activeTrendReport.summary.volumeGrowthPct >= 0 ? '+' : ''}
+                {activeTrendReport.summary.volumeGrowthPct}% tren
+              </span>
+            </div>
+            <p className="mt-1 text-[11px] text-slate-500 tabular-nums">
+              Rata-rata harian: <span className="font-semibold text-slate-700">{activeTrendReport.summary.avgDailyWeightKg} kg/hari</span> · {activeTrendReport.summary.totalTransactions} setoran
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200/80 bg-white p-4">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block">
+              ESTIMASI NILAI JUAL PENGEPUL
+            </span>
+            <div className="mt-1.5 flex items-baseline justify-between gap-2">
+              <span className="text-xl xl:text-2xl font-semibold text-[#0C2D57] tabular-nums whitespace-nowrap">
+                {formatIDR(activeTrendReport.summary.totalEstimatedRevenueRp)}
+              </span>
+              <span className="text-xs font-semibold text-emerald-600 tabular-nums whitespace-nowrap">
+                +{activeTrendReport.summary.financialGrowthPct}%
+              </span>
+            </div>
+            <p className="mt-1 text-[11px] text-slate-500 tabular-nums">
+              Valuasi pasar material terkumpul ({activeTrendReport.summary.startDateIso.slice(5)} s/d {activeTrendReport.summary.endDateIso.slice(5)})
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200/80 bg-white p-4">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block">
+              HPP PEMBELIAN NASABAH
+            </span>
+            <div className="mt-1.5 flex items-baseline justify-between gap-2">
+              <span className="text-xl xl:text-2xl font-semibold text-slate-900 tabular-nums whitespace-nowrap">
+                {formatIDR(activeTrendReport.summary.totalDepositCostRp)}
+              </span>
+              <span className="text-[11px] text-slate-500 tabular-nums whitespace-nowrap">
+                Tabungan & Tunai
+              </span>
+            </div>
+            <p className="mt-1 text-[11px] text-slate-500 tabular-nums">
+               Nilai ekonomi langsung yang dikreditkan ke warga
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200/80 bg-white p-4">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block">
+              MARGIN KOTOR UNIT ({activeTrendReport.summary.avgMarginPct}%)
+            </span>
+            <div className="mt-1.5 flex items-baseline justify-between gap-2">
+              <span className="text-xl xl:text-2xl font-semibold text-emerald-700 tabular-nums whitespace-nowrap">
+                +{formatIDR(activeTrendReport.summary.totalGrossMarginRp)}
+              </span>
+            </div>
+            <p className="mt-1 text-[11px] text-slate-500 tabular-nums">
+              Puncak harian: <span className="font-semibold text-slate-700">{activeTrendReport.summary.peakDay.dateLabel}</span> ({activeTrendReport.summary.peakDay.weightKg} kg)
+            </p>
+          </div>
+        </div>
+
+        {/* Main 30-Day Recharts Visualization Surface */}
+        <div className="rounded-2xl border border-slate-200/90 bg-[#FAFAFA] p-5 space-y-4">
+          {/* Legend & Metadata Header */}
+          <div className="flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500">
+            <div className="flex flex-wrap items-center gap-4">
+              {trendViewMode === 'combined' && (
+                <>
+                  <span className="flex items-center gap-1.5 font-medium text-slate-700">
+                    <span className="h-2.5 w-2.5 rounded-xs bg-[#009CAC]" />
+                    Volume Sampah Harian (kg · Sumbu Kiri)
+                  </span>
+                  <span className="flex items-center gap-1.5 font-medium text-slate-700">
+                    <span className="h-0.5 w-3.5 bg-[#0C2D57]" />
+                    Estimasi Nilai Jual Pengepul (Rp · Sumbu Kanan)
+                  </span>
+                  <span className="flex items-center gap-1.5 font-medium text-slate-700">
+                    <span className="h-0.5 w-3.5 bg-[#159B70]" />
+                    HPP Pembelian Nasabah (Rp · Sumbu Kanan)
+                  </span>
+                </>
+              )}
+              {trendViewMode === 'financial' && (
+                <>
+                  <span className="flex items-center gap-1.5 font-medium text-slate-700">
+                    <span className="h-2.5 w-2.5 rounded-xs bg-[#0C2D57]" />
+                    Estimasi Nilai Jual Pengepul (Rp)
+                  </span>
+                  <span className="flex items-center gap-1.5 font-medium text-slate-700">
+                    <span className="h-2.5 w-2.5 rounded-xs bg-[#009CAC]" />
+                    HPP Pembelian Nasabah (Rp)
+                  </span>
+                  <span className="flex items-center gap-1.5 font-medium text-slate-700">
+                    <span className="h-2.5 w-2.5 rounded-xs bg-[#159B70]" />
+                    Margin Kotor Operasional (Rp)
+                  </span>
+                </>
+              )}
+              {trendViewMode === 'composition' && (
+                <>
+                  <span className="flex items-center gap-1.5 font-medium text-slate-700">
+                    <span className="h-2.5 w-2.5 rounded-xs bg-[#009CAC]" />
+                    Plastik ({activeTrendReport.summary.categoryBreakdown.plastikKg} kg)
+                  </span>
+                  <span className="flex items-center gap-1.5 font-medium text-slate-700">
+                    <span className="h-2.5 w-2.5 rounded-xs bg-[#159B70]" />
+                    Kertas & Kardus ({activeTrendReport.summary.categoryBreakdown.kertasKg} kg)
+                  </span>
+                  <span className="flex items-center gap-1.5 font-medium text-slate-700">
+                    <span className="h-2.5 w-2.5 rounded-xs bg-[#0C2D57]" />
+                    Logam & Kaca ({activeTrendReport.summary.categoryBreakdown.logamKacaKg} kg)
+                  </span>
+                  <span className="flex items-center gap-1.5 font-medium text-slate-700">
+                    <span className="h-2.5 w-2.5 rounded-xs bg-[#D97706]" />
+                    Minyak & Lainnya ({activeTrendReport.summary.categoryBreakdown.lainnyaKg} kg)
+                  </span>
+                </>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3 text-[11px] text-slate-500 tabular-nums">
+              <span className="flex items-center gap-1.5">
+                <span className="h-0.5 w-3 border-t border-dashed border-amber-500" />
+                Target Harian: 55 kg/hari
+              </span>
+              {lastSyncedAt && (
+                <span className="text-slate-400">
+                  Update Server: {formatTimeOnlyID(lastSyncedAt)}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Recharts Canvas (explicit height 320px to guarantee zero layout jitter) */}
+          <div className="h-80 w-full" data-testid="waste-trends-chart-container">
+            <ResponsiveContainer width="100%" height="100%">
+              {trendViewMode === 'combined' ? (
+                <ComposedChart
+                  data={activeTrendReport.series}
+                  margin={{ top: 10, right: 8, left: -14, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                  <XAxis
+                    dataKey="dateLabel"
+                    tick={{ fontSize: 11, fill: '#64748B' }}
+                    axisLine={false}
+                    tickLine={false}
+                    interval={trendWindowDays === 30 ? 2 : 0}
+                  />
+                  <YAxis
+                    yAxisId="weight"
+                    tick={{ fontSize: 11, fill: '#64748B' }}
+                    axisLine={false}
+                    tickLine={false}
+                    unit=" kg"
+                  />
+                  <YAxis
+                    yAxisId="finance"
+                    orientation="right"
+                    tick={{ fontSize: 11, fill: '#64748B' }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(val: number) => `Rp${Math.round(val / 1000)}rb`}
+                  />
+                  <Tooltip content={<CustomDailyWasteTrendsTooltip />} />
+                  <ReferenceLine
+                    yAxisId="weight"
+                    y={55}
+                    stroke="#F59E0B"
+                    strokeDasharray="4 4"
+                    strokeWidth={1.25}
+                  />
+                  <Bar
+                    isAnimationActive={false}
+                    yAxisId="weight"
+                    dataKey="totalWeightKg"
+                    name="Volume Harian (kg)"
+                    fill="#009CAC"
+                    fillOpacity={0.82}
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={22}
+                  />
+                  <Line
+                    isAnimationActive={false}
+                    yAxisId="finance"
+                    type="monotone"
+                    dataKey="estimatedRevenueRp"
+                    name="Estimasi Nilai Jual (Rp)"
+                    stroke="#0C2D57"
+                    strokeWidth={2.2}
+                    dot={false}
+                    activeDot={{ r: 4.5, fill: '#0C2D57', stroke: '#fff', strokeWidth: 1.5 }}
+                  />
+                  <Line
+                    isAnimationActive={false}
+                    yAxisId="finance"
+                    type="monotone"
+                    dataKey="depositCostRp"
+                    name="HPP Beli Nasabah (Rp)"
+                    stroke="#159B70"
+                    strokeWidth={1.8}
+                    strokeDasharray="4 3"
+                    dot={false}
+                    activeDot={{ r: 4, fill: '#159B70', stroke: '#fff', strokeWidth: 1.5 }}
+                  />
+                </ComposedChart>
+              ) : trendViewMode === 'financial' ? (
+                <AreaChart
+                  data={activeTrendReport.series}
+                  margin={{ top: 10, right: 8, left: 0, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                  <XAxis
+                    dataKey="dateLabel"
+                    tick={{ fontSize: 11, fill: '#64748B' }}
+                    axisLine={false}
+                    tickLine={false}
+                    interval={trendWindowDays === 30 ? 2 : 0}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: '#64748B' }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(val: number) => `Rp${Math.round(val / 1000)}rb`}
+                  />
+                  <Tooltip content={<CustomDailyWasteTrendsTooltip />} />
+                  <Area
+                    isAnimationActive={false}
+                    type="monotone"
+                    dataKey="estimatedRevenueRp"
+                    name="Estimasi Nilai Jual (Rp)"
+                    stroke="#0C2D57"
+                    strokeWidth={2.2}
+                    fill="#0C2D57"
+                    fillOpacity={0.12}
+                  />
+                  <Area
+                    isAnimationActive={false}
+                    type="monotone"
+                    dataKey="depositCostRp"
+                    name="HPP Pembelian Nasabah (Rp)"
+                    stroke="#009CAC"
+                    strokeWidth={2}
+                    fill="#009CAC"
+                    fillOpacity={0.16}
+                  />
+                  <Area
+                    isAnimationActive={false}
+                    type="monotone"
+                    dataKey="grossMarginRp"
+                    name="Margin Kotor Unit (Rp)"
+                    stroke="#159B70"
+                    strokeWidth={2}
+                    fill="#159B70"
+                    fillOpacity={0.22}
+                  />
+                </AreaChart>
+              ) : (
+                <ComposedChart
+                  data={activeTrendReport.series}
+                  margin={{ top: 10, right: 8, left: -14, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                  <XAxis
+                    dataKey="dateLabel"
+                    tick={{ fontSize: 11, fill: '#64748B' }}
+                    axisLine={false}
+                    tickLine={false}
+                    interval={trendWindowDays === 30 ? 2 : 0}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: '#64748B' }}
+                    axisLine={false}
+                    tickLine={false}
+                    unit=" kg"
+                  />
+                  <Tooltip content={<CustomDailyWasteTrendsTooltip />} />
+                  <ReferenceLine
+                    y={55}
+                    stroke="#F59E0B"
+                    strokeDasharray="4 4"
+                    strokeWidth={1.5}
+                  />
+                  <Bar
+                    isAnimationActive={false}
+                    dataKey="plastikKg"
+                    name="Plastik"
+                    stackId="dailyComp"
+                    fill="#009CAC"
+                    maxBarSize={22}
+                  />
+                  <Bar
+                    isAnimationActive={false}
+                    dataKey="kertasKg"
+                    name="Kertas & Kardus"
+                    stackId="dailyComp"
+                    fill="#159B70"
+                    maxBarSize={22}
+                  />
+                  <Bar
+                    isAnimationActive={false}
+                    dataKey="logamKacaKg"
+                    name="Logam & Kaca"
+                    stackId="dailyComp"
+                    fill="#0C2D57"
+                    maxBarSize={22}
+                  />
+                  <Bar
+                    isAnimationActive={false}
+                    dataKey="lainnyaKg"
+                    name="Minyak & Lainnya"
+                    stackId="dailyComp"
+                    fill="#D97706"
+                    radius={[3, 3, 0, 0]}
+                    maxBarSize={22}
+                  />
+                </ComposedChart>
+              )}
+            </ResponsiveContainer>
+          </div>
+
+          {/* Bottom Interactive Action & Sync Strip */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-200/80 pt-3 text-xs">
+            <div className="flex flex-wrap items-center gap-2 text-slate-600 tabular-nums">
+              <span>
+                Hari Ini (<span className="font-semibold text-slate-900">Live</span>):{' '}
+                <strong className="text-slate-950">
+                  {activeTrendReport.series[activeTrendReport.series.length - 1]?.totalWeightKg.toFixed(1)} kg
+                </strong>
+              </span>
+              <span>·</span>
+              <span>
+                Nilai Jual:{' '}
+                <strong className="text-[#0C2D57]">
+                  {formatIDR(activeTrendReport.series[activeTrendReport.series.length - 1]?.estimatedRevenueRp || 0)}
+                </strong>
+              </span>
+              <span>·</span>
+              <span>
+                Margin Hari Ini:{' '}
+                <strong className="text-emerald-700">
+                  +{formatIDR(activeTrendReport.series[activeTrendReport.series.length - 1]?.grossMarginRp || 0)}
+                </strong>
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setActiveTab('pengaturan')}
+                className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-950 cursor-pointer"
+              >
+                <span>Inspeksi Endpoint API</span>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('keuangan')}
+                className="inline-flex items-center gap-1 text-xs font-medium text-[#009CAC] hover:underline cursor-pointer"
+              >
+                <span>Detail Laporan Keuangan</span>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
             </div>
           </div>
         </div>
