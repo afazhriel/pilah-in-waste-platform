@@ -1,0 +1,6 @@
+{
+  "name": "Pilah.in - Smart Waste Banking & IoT",
+  "description": "Platform pengelolaan bank sampah digital cerdas dengan timbangan IoT terintegrasi dan pencatatan tabungan nasabah.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
